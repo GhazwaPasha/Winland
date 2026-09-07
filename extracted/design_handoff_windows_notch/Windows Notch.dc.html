@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  @keyframes notchPulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+</style>
+</helmet>
+<div style="width:1440px;height:900px;position:relative;overflow:hidden;border-radius:14px;font-family:'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;box-shadow:0 30px 80px rgba(0,0,0,0.35);background:{{ colors.wallpaper }}">
+
+  <div style="position:absolute;top:16px;left:16px;z-index:50;display:flex;align-items:center;gap:8px;background:rgba(0,0,0,0.35);backdrop-filter:blur(10px);padding:6px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.15)">
+    <span onClick="{{ launchFullscreen }}" style="cursor:pointer;font-size:11px;color:rgba(255,255,255,0.8);padding:2px 8px;border-radius:14px;background:rgba(255,255,255,0.1)">Launch fullscreen app</span>
+  </div>
+
+  <div style="position:absolute;top:16px;right:16px;z-index:50;display:flex;align-items:center;gap:8px;background:rgba(0,0,0,0.35);backdrop-filter:blur(10px);padding:6px 10px;border-radius:20px;border:1px solid rgba(255,255,255,0.15)">
+    <span style="font-size:11px;color:rgba(255,255,255,0.7);letter-spacing:.02em">Preview theme</span>
+    <div onClick="{{ setLight }}" style="width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;background:{{ colors.themeBtnLightBg }}">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="{{ colors.themeBtnLightIcon }}" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+    </div>
+    <div onClick="{{ setDark }}" style="width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;background:{{ colors.themeBtnDarkBg }}">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="{{ colors.themeBtnDarkIcon }}"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>
+    </div>
+  </div>
+
+  <sc-if value="{{ showFullscreenOverlay }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ exitFullscreen }}" style="position:absolute;inset:0;bottom:48px;z-index:30;background:#0b0b0f;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer">
+      <span style="font-size:14px;color:rgba(255,255,255,0.5)">Fullscreen app running</span>
+      <span style="font-size:11px;color:rgba(255,255,255,0.3)">Click to exit</span>
+    </div>
+  </sc-if>
+
+  <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:{{ notchZ }};display:{{ notchDisplay }};flex-direction:column;align-items:center">
+    <div style="position:relative">
+      <div onClick="{{ toggleExpanded }}" style="cursor:pointer;background:{{ colors.panelBg }};backdrop-filter:blur(30px) saturate(180%);border:1px solid {{ colors.stroke }};border-top:none;box-shadow:0 12px 30px rgba(0,0,0,0.35);transition:width .28s cubic-bezier(.2,.8,.2,1),height .28s cubic-bezier(.2,.8,.2,1),border-radius .28s ease;overflow:hidden;width:{{ notchWidth }};height:{{ notchHeight }};border-radius:{{ notchRadius }}">
+
+      <sc-if value="{{ isExpanded }}" hint-placeholder-val="{{ false }}">
+        <div style="width:100%;box-sizing:border-box;padding:16px 18px 18px;display:flex;flex-direction:column;gap:14px">
+
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div style="display:flex;align-items:baseline;gap:8px">
+              <span style="font-size:20px;font-weight:600;color:{{ colors.text }}">{{ timeStr }}</span>
+              <span style="font-size:12px;color:{{ colors.textSecondary }}">{{ dateStr }}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;color:{{ colors.textSecondary }}">
+              <svg onClick="{{ togglePin }}" viewBox="0 0 24 24" width="14" height="14" fill="{{ pinIconColor2 }}" transform="{{ pinRotation }}" style="cursor:pointer"><path d="M16 3l5 5-3.5 3.5 1 4-1.4 1.4-4-4-5 5-1.4-1.4 5-5-4-4L14 6l4 4L16 3"/></svg>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8.5a13 13 0 0 1 16 0"/><path d="M7 12a8.5 8.5 0 0 1 10 0"/><path d="M10 15.5a4 4 0 0 1 4 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg>
+              <svg viewBox="0 0 24 24" width="20" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="18" height="9" rx="2"/><rect x="21" y="6.5" width="2" height="4" fill="currentColor" stroke="none"/></svg>
+              <span style="font-size:12px">{{ batteryPct }}%</span>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:4px;background:{{ colors.tabBarBg }};padding:3px;border-radius:8px">
+            <div onClick="{{ selectTabQuick }}" style="flex:1;text-align:center;padding:6px 0;border-radius:6px;font-size:12px;cursor:pointer;background:{{ tabQuickBg }};color:{{ tabQuickText }};font-weight:{{ tabQuickWeight }}">Quick settings</div>
+            <div onClick="{{ selectTabMedia }}" style="flex:1;text-align:center;padding:6px 0;border-radius:6px;font-size:12px;cursor:pointer;background:{{ tabMediaBg }};color:{{ tabMediaText }};font-weight:{{ tabMediaWeight }}">Media</div>
+            <div onClick="{{ selectTabApps }}" style="flex:1;text-align:center;padding:6px 0;border-radius:6px;font-size:12px;cursor:pointer;background:{{ tabAppsBg }};color:{{ tabAppsText }};font-weight:{{ tabAppsWeight }}">Apps</div>
+            <div onClick="{{ selectTabAi }}" style="flex:1;text-align:center;padding:6px 0;border-radius:6px;font-size:12px;cursor:pointer;background:{{ tabAiBg }};color:{{ tabAiText }};font-weight:{{ tabAiWeight }}">AI</div>
+          </div>
+
+          <sc-if value="{{ showQuick }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <sc-for list="{{ tiles }}" as="tile" hint-placeholder-count="4">
+                  <div onClick="{{ tile.onToggle }}" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;background:{{ tile.bg }}">
+                    <div style="width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:{{ tile.iconBg }};color:{{ tile.iconColor }};flex-shrink:0">
+                      <sc-if value="{{ tile.isWifi }}" hint-placeholder-val="{{ false }}">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8.5a13 13 0 0 1 16 0"/><path d="M7 12a8.5 8.5 0 0 1 10 0"/><path d="M10 15.5a4 4 0 0 1 4 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg>
+                      </sc-if>
+                      <sc-if value="{{ tile.isBt }}" hint-placeholder-val="{{ false }}">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7l10 10-5 5V2l5 5L7 17"/></svg>
+                      </sc-if>
+                      <sc-if value="{{ tile.isAirplane }}" hint-placeholder-val="{{ false }}">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M21 3L2 10.5l7 2.5 2.5 7L21 3z"/></svg>
+                      </sc-if>
+                      <sc-if value="{{ tile.isSaver }}" hint-placeholder-val="{{ false }}">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="17" height="12" rx="2.5"/><rect x="20" y="9" width="2" height="6" fill="currentColor" stroke="none"/><path d="M6 12h2l1.5-3 2 6 1.5-3h2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      </sc-if>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:1px;min-width:0">
+                      <span style="font-size:12px;color:{{ tile.textColor }};font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ tile.label }}</span>
+                      <span style="font-size:10.5px;color:{{ tile.subColor }}">{{ tile.sub }}</span>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="{{ colors.textSecondary }}"><path d="M3 9v6h4l5 5V4L7 9H3z"/></svg>
+                  <div style="flex:1;height:4px;border-radius:2px;background:{{ colors.sliderTrack }};position:relative">
+                    <div style="position:absolute;left:0;top:0;height:4px;border-radius:2px;background:{{ colors.accent }};width:{{ volumePct }}"></div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="{{ colors.textSecondary }}" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M3 12h2M19 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg>
+                  <div style="flex:1;height:4px;border-radius:2px;background:{{ colors.sliderTrack }};position:relative">
+                    <div style="position:absolute;left:0;top:0;height:4px;border-radius:2px;background:{{ colors.accent }};width:{{ brightnessPct }}"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ showMedia }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;gap:12px;align-items:center">
+              <div style="width:64px;height:64px;border-radius:8px;flex-shrink:0;background:repeating-linear-gradient(45deg,{{ colors.tileBg }} 0 6px,{{ colors.tileBg2 }} 6px 12px);display:flex;align-items:center;justify-content:center">
+                <span style="font-size:8px;font-family:monospace;color:{{ colors.textSecondary }};text-align:center">album<br/>art</span>
+              </div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:10px;min-width:0">
+                <div style="min-width:0">
+                  <div style="font-size:13px;font-weight:600;color:{{ colors.text }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Weightless</div>
+                  <div style="font-size:11.5px;color:{{ colors.textSecondary }}">Marconi Union</div>
+                </div>
+                <div style="height:3px;border-radius:2px;background:{{ colors.sliderTrack }};position:relative">
+                  <div style="position:absolute;left:0;top:0;height:3px;border-radius:2px;background:{{ colors.accent }};width:38%"></div>
+                </div>
+                <div style="display:flex;align-items:center;gap:16px">
+                  <svg onClick="{{ noop }}" viewBox="0 0 24 24" width="14" height="14" fill="{{ colors.text }}" style="cursor:pointer"><polygon points="18,4 18,20 8,12"/><rect x="4" y="4" width="2" height="16"/></svg>
+                  <div onClick="{{ togglePlay }}" style="width:30px;height:30px;border-radius:50%;background:{{ colors.accent }};display:flex;align-items:center;justify-content:center;cursor:pointer">
+                    <sc-if value="{{ isPlaying }}" hint-placeholder-val="{{ true }}">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff"><rect x="5" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                    </sc-if>
+                    <sc-if value="{{ isPaused }}" hint-placeholder-val="{{ false }}">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="#fff"><polygon points="6,4 20,12 6,20"/></svg>
+                    </sc-if>
+                  </div>
+                  <svg onClick="{{ noop }}" viewBox="0 0 24 24" width="14" height="14" fill="{{ colors.text }}" style="cursor:pointer"><polygon points="6,4 6,20 16,12"/><rect x="18" y="4" width="2" height="16"/></svg>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ showApps }}" hint-placeholder-val="{{ false }}">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+              <sc-for list="{{ apps }}" as="app" hint-placeholder-count="8">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer">
+                  <div style="width:36px;height:36px;border-radius:8px;background:{{ app.color }};display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700">{{ app.initial }}</div>
+                  <span style="font-size:9.5px;color:{{ colors.textSecondary }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:48px">{{ app.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ showAi }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <div style="width:28px;height:28px;border-radius:6px;background:{{ claude.color }};display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;flex-shrink:0">{{ claude.initial }}</div>
+                <span style="font-size:13px;font-weight:600;color:{{ colors.text }};flex:1">{{ claude.label }}</span>
+                <div style="display:flex;align-items:center;gap:5px">
+                  <span style="width:6px;height:6px;border-radius:50%;background:{{ claude.statusColor }};animation:{{ claude.statusAnim }}"></span>
+                  <span style="font-size:10.5px;color:{{ colors.textSecondary }}">{{ claude.status }}</span>
+                </div>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:16px">
+                <svg viewBox="0 0 100 100" width="110" height="110" style="flex-shrink:0">
+                  <circle cx="50" cy="50" r="{{ claude.outerR }}" fill="none" stroke="{{ colors.sliderTrack }}" stroke-width="{{ claude.sw }}"></circle>
+                  <circle cx="50" cy="50" r="{{ claude.innerR }}" fill="none" stroke="{{ colors.sliderTrack }}" stroke-width="{{ claude.sw }}"></circle>
+                  <circle cx="50" cy="50" r="{{ claude.outerR }}" fill="none" stroke="{{ claude.weeklyColor }}" stroke-width="{{ claude.sw }}" stroke-linecap="round" stroke-dasharray="{{ claude.outerDash }}" stroke-dashoffset="{{ claude.outerOffset }}" transform="rotate(-90 50 50)"></circle>
+                  <circle cx="50" cy="50" r="{{ claude.innerR }}" fill="none" stroke="{{ claude.fiveHourColor }}" stroke-width="{{ claude.sw }}" stroke-linecap="round" stroke-dasharray="{{ claude.innerDash }}" stroke-dashoffset="{{ claude.innerOffset }}" transform="rotate(-90 50 50)"></circle>
+                  <text x="50" y="47" text-anchor="middle" font-size="17" font-weight="700" fill="{{ colors.text }}">{{ claude.weeklyPct }}%</text>
+                  <text x="50" y="61" text-anchor="middle" font-size="8" fill="{{ colors.textSecondary }}">this week</text>
+                </svg>
+
+                <div style="display:flex;flex-direction:column;gap:10px;flex:1;min-width:0">
+                  <div style="display:flex;flex-direction:column;gap:2px">
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <span style="width:8px;height:8px;border-radius:50%;background:{{ claude.weeklyColor }};flex-shrink:0"></span>
+                      <span style="font-size:11.5px;color:{{ colors.text }}">Weekly limit – {{ claude.weeklyPct }}%</span>
+                    </div>
+                    <span style="font-size:10px;color:{{ colors.textSecondary }};margin-left:14px">{{ claude.weeklyResets }}</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:2px">
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <span style="width:8px;height:8px;border-radius:50%;background:{{ claude.fiveHourColor }};flex-shrink:0"></span>
+                      <span style="font-size:11.5px;color:{{ colors.text }}">5-hour limit – {{ claude.fiveHourPct }}%</span>
+                    </div>
+                    <span style="font-size:10px;color:{{ colors.textSecondary }};margin-left:14px">{{ claude.fiveHourResets }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isCollapsed }}" hint-placeholder-val="{{ true }}">
+        <div style="width:220px;height:34px;display:flex;align-items:center;justify-content:center;gap:10px;color:{{ colors.text }}">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8.5a13 13 0 0 1 16 0"/><path d="M7 12a8.5 8.5 0 0 1 10 0"/><path d="M10 15.5a4 4 0 0 1 4 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg>
+          <svg viewBox="0 0 24 24" width="16" height="10" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="18" height="9" rx="2"/><rect x="21" y="6.5" width="2" height="4" fill="currentColor" stroke="none"/></svg>
+          <span style="font-size:11px;font-weight:600">{{ timeStr }}</span>
+          <svg onClick="{{ togglePin }}" viewBox="0 0 24 24" width="12" height="12" fill="{{ pinIconColor }}" transform="{{ pinRotation }}" style="cursor:pointer"><path d="M16 3l5 5-3.5 3.5 1 4-1.4 1.4-4-4-5 5-1.4-1.4 5-5-4-4L14 6l4 4L16 3"/></svg>
+        </div>
+      </sc-if>
+
+      </div>
+    </div>
+  </div>
+
+  <div style="position:absolute;bottom:0;left:0;width:100%;height:48px;display:flex;align-items:center;justify-content:center;gap:6px;background:{{ colors.taskbarBg }};backdrop-filter:blur(24px) saturate(150%);border-top:1px solid {{ colors.stroke }}">
+    <div style="width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer" style-hover="background:{{ colors.taskbarIconHover }}">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="{{ colors.text }}" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>
+    </div>
+    <div style="width:220px;height:32px;border-radius:16px;background:{{ colors.searchBg }};display:flex;align-items:center;gap:8px;padding:0 12px;color:{{ colors.textSecondary }}">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span style="font-size:12px">Search</span>
+    </div>
+    <div style="width:1px;height:24px;background:{{ colors.stroke }};margin:0 6px"></div>
+    <sc-for list="{{ taskbarApps }}" as="tapp" hint-placeholder-count="6">
+      <div style="width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer">
+        <div style="width:22px;height:22px;border-radius:5px;background:{{ tapp.color }};display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700">{{ tapp.initial }}</div>
+      </div>
+    </sc-for>
+    <div style="width:1px;height:24px;background:{{ colors.stroke }};margin:0 6px"></div>
+    <div style="display:flex;align-items:center;gap:8px;color:{{ colors.text }};padding:0 8px">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8.5a13 13 0 0 1 16 0"/><path d="M7 12a8.5 8.5 0 0 1 10 0"/><path d="M10 15.5a4 4 0 0 1 4 0"/><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"/></svg>
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/></svg>
+      <svg viewBox="0 0 24 24" width="17" height="10" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="4" width="18" height="9" rx="2"/><rect x="21" y="6.5" width="2" height="4" fill="currentColor" stroke="none"/></svg>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;margin-left:2px">
+        <span style="font-size:11px">{{ timeStr }}</span>
+        <span style="font-size:10px;opacity:0.7">{{ dateStr }}</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dark&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = {
+    expanded: false,
+    tab: 'quick',
+    theme: this.props.defaultTheme || 'dark',
+    wifi: true,
+    bluetooth: true,
+    airplane: false,
+    saver: false,
+    volume: 70,
+    brightness: 60,
+    playing: true,
+    pinned: true,
+    fullscreen: false,
+    now: new Date()
+  };
+
+  componentDidMount() {
+    this._t = setInterval(() => this.setState({ now: new Date() }), 30000);
+  }
+  componentWillUnmount() { clearInterval(this._t); }
+
+  toggleExpanded = () => this.setState(s => ({ expanded: !s.expanded }));
+  setLight = () => this.setState({ theme: 'light' });
+  setDark = () => this.setState({ theme: 'dark' });
+  selectTabQuick = (e) => { e.stopPropagation(); this.setState({ tab: 'quick' }); };
+  selectTabMedia = (e) => { e.stopPropagation(); this.setState({ tab: 'media' }); };
+  selectTabApps = (e) => { e.stopPropagation(); this.setState({ tab: 'apps' }); };
+  selectTabAi = (e) => { e.stopPropagation(); this.setState({ tab: 'ai' }); };
+  togglePlay = (e) => { e.stopPropagation(); this.setState(s => ({ playing: !s.playing })); };
+  toggleField = (field) => (e) => { e.stopPropagation(); this.setState(s => ({ [field]: !s[field] })); };
+  noop = (e) => { e.stopPropagation(); };
+  togglePin = () => this.setState(s => ({ pinned: !s.pinned }));
+  launchFullscreen = () => this.setState({ fullscreen: true });
+  exitFullscreen = () => this.setState({ fullscreen: false });
+
+  renderVals() {
+    const s = this.state;
+    const dark = s.theme === 'dark';
+    const accent = '#3E93E8';
+    const colors = dark ? {
+      wallpaper: 'radial-gradient(circle at 25% 20%,#1c3a5e 0%,#0e1a2b 45%,#05080c 100%)',
+      panelBg: 'rgba(32,32,32,0.82)',
+      stroke: 'rgba(255,255,255,0.10)',
+      text: '#ffffff',
+      textSecondary: 'rgba(255,255,255,0.65)',
+      tabBarBg: 'rgba(255,255,255,0.06)',
+      tileBg: 'rgba(255,255,255,0.06)',
+      tileBg2: 'rgba(255,255,255,0.11)',
+      sliderTrack: 'rgba(255,255,255,0.14)',
+      taskbarBg: 'rgba(28,28,28,0.72)',
+      taskbarIconHover: 'rgba(255,255,255,0.08)',
+      searchBg: 'rgba(255,255,255,0.08)',
+      accent,
+      themeBtnLightBg: 'transparent', themeBtnLightIcon: 'rgba(255,255,255,0.6)',
+      themeBtnDarkBg: 'rgba(255,255,255,0.18)', themeBtnDarkIcon: '#ffffff'
+    } : {
+      wallpaper: 'radial-gradient(circle at 25% 20%,#8fc7ea 0%,#5a9bd8 45%,#2f6fb0 100%)',
+      panelBg: 'rgba(249,249,249,0.85)',
+      stroke: 'rgba(0,0,0,0.08)',
+      text: '#1b1b1b',
+      textSecondary: 'rgba(0,0,0,0.6)',
+      tabBarBg: 'rgba(0,0,0,0.05)',
+      tileBg: 'rgba(0,0,0,0.04)',
+      tileBg2: 'rgba(0,0,0,0.08)',
+      sliderTrack: 'rgba(0,0,0,0.12)',
+      taskbarBg: 'rgba(255,255,255,0.65)',
+      taskbarIconHover: 'rgba(0,0,0,0.06)',
+      searchBg: 'rgba(0,0,0,0.05)',
+      accent,
+      themeBtnLightBg: 'rgba(0,0,0,0.35)', themeBtnLightIcon: '#ffffff',
+      themeBtnDarkBg: 'transparent', themeBtnDarkIcon: 'rgba(255,255,255,0.6)'
+    };
+
+    const isExpanded = s.expanded;
+    const notchWidth = isExpanded ? '400px' : '220px';
+    const notchHeight = isExpanded ? (s.tab === 'apps' ? '260px' : s.tab === 'media' ? '190px' : s.tab === 'ai' ? '230px' : '350px') : '34px';
+    const notchRadius = isExpanded ? '0 0 20px 20px' : '0 0 18px 18px';
+
+    const activeBg = 'rgba(62,147,232,0.16)';
+    const mkTile = (id, label, active, sub, flag) => ({
+      id, label, sub,
+      onToggle: this.toggleField(flag),
+      bg: active ? activeBg : colors.tileBg,
+      iconBg: active ? accent : colors.tileBg2,
+      iconColor: active ? '#ffffff' : colors.textSecondary,
+      textColor: colors.text,
+      subColor: colors.textSecondary,
+      isWifi: id === 'wifi', isBt: id === 'bt', isAirplane: id === 'airplane', isSaver: id === 'saver'
+    });
+
+    const tiles = [
+      mkTile('wifi', 'Wi-Fi', s.wifi, s.wifi ? 'Home Network' : 'Off', 'wifi'),
+      mkTile('bt', 'Bluetooth', s.bluetooth, s.bluetooth ? 'On' : 'Off', 'bluetooth'),
+      mkTile('airplane', 'Airplane mode', s.airplane, s.airplane ? 'On' : 'Off', 'airplane'),
+      mkTile('saver', 'Battery saver', s.saver, s.saver ? 'On' : 'Off', 'saver')
+    ];
+
+    const appDefs = [
+      ['Explorer', '#F2B441', 'E'], ['Edge', '#2F8FDE', 'e'], ['Mail', '#5B5FC7', 'M'],
+      ['Store', '#8764B8', 'S'], ['Photos', '#E85D75', 'P'], ['Settings', '#6E7681', '\u2699'],
+      ['Music', '#00B294', 'N'], ['Terminal', '#1E1E1E', '>']
+    ];
+    const apps = appDefs.map(([label, color, initial]) => ({ label, color, initial }));
+    const taskbarApps = apps.slice(0, 6);
+
+    const outerR = 40, innerR = 27, sw = 7;
+    const weeklyPct = 62, fiveHourPct = 42;
+    const cOuter = 2 * Math.PI * outerR, cInner = 2 * Math.PI * innerR;
+    const claude = {
+      label: 'Claude', color: '#D97757', initial: 'C',
+      working: true, status: 'Working\u2026',
+      statusColor: accent, statusAnim: 'notchPulse 1.4s ease-in-out infinite',
+      outerR, innerR, sw,
+      weeklyPct, fiveHourPct,
+      weeklyColor: accent, fiveHourColor: '#D97757',
+      weeklyResets: 'Resets in 3d 4h', fiveHourResets: 'Resets in 2h 15m',
+      outerDash: cOuter, outerOffset: cOuter * (1 - weeklyPct / 100),
+      innerDash: cInner, innerOffset: cInner * (1 - fiveHourPct / 100)
+    };
+
+    const pad = (n) => String(n).padStart(2, '0');
+    let h = s.now.getHours(); const ampm = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    const timeStr = `${h}:${pad(s.now.getMinutes())} ${ampm}`;
+    const dateStr = `${s.now.getMonth() + 1}/${s.now.getDate()}/${s.now.getFullYear()}`;
+
+    const tabActiveBg = dark ? 'rgba(255,255,255,0.14)' : '#ffffff';
+
+    const notchHidden = s.fullscreen && !s.pinned;
+    return {
+      colors, isExpanded, isCollapsed: !isExpanded,
+      showFullscreenOverlay: s.fullscreen,
+      notchZ: s.fullscreen ? 35 : 40,
+      notchDisplay: notchHidden ? 'none' : 'flex',
+      togglePin: this.togglePin, launchFullscreen: this.launchFullscreen, exitFullscreen: this.exitFullscreen,
+      pinIconColor: s.pinned ? colors.accent : colors.text,
+      pinIconColor2: s.pinned ? colors.accent : colors.textSecondary,
+      pinRotation: s.pinned ? 'rotate(0 12 12)' : 'rotate(-45 12 12)',
+      notchWidth, notchHeight, notchRadius,
+      toggleExpanded: this.toggleExpanded, setLight: this.setLight, setDark: this.setDark,
+      selectTabQuick: this.selectTabQuick, selectTabMedia: this.selectTabMedia, selectTabApps: this.selectTabApps, selectTabAi: this.selectTabAi,
+      togglePlay: this.togglePlay, noop: this.noop,
+      showQuick: s.tab === 'quick', showMedia: s.tab === 'media', showApps: s.tab === 'apps', showAi: s.tab === 'ai',
+      tabQuickBg: s.tab === 'quick' ? tabActiveBg : 'transparent', tabQuickText: colors.text, tabQuickWeight: s.tab === 'quick' ? 600 : 400,
+      tabMediaBg: s.tab === 'media' ? tabActiveBg : 'transparent', tabMediaText: colors.text, tabMediaWeight: s.tab === 'media' ? 600 : 400,
+      tabAppsBg: s.tab === 'apps' ? tabActiveBg : 'transparent', tabAppsText: colors.text, tabAppsWeight: s.tab === 'apps' ? 600 : 400,
+      tabAiBg: s.tab === 'ai' ? tabActiveBg : 'transparent', tabAiText: colors.text, tabAiWeight: s.tab === 'ai' ? 600 : 400,
+      tiles, apps, taskbarApps, claude,
+      batteryPct: 82, volumePct: s.volume + '%', brightnessPct: s.brightness + '%',
+      isPlaying: s.playing, isPaused: !s.playing,
+      timeStr, dateStr
+    };
+  }
+}
+
+</script>
+</body>
+</html>

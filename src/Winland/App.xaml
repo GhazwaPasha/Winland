@@ -1,0 +1,43 @@
+<Application x:Class="Winland.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <!--
+                Design tokens from the Claude Design handoff README (dark
+                theme only for now — no OS chrome to fight in WPF, but
+                light/dark theme switching is a separate follow-up: read
+                HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme
+                and swap these brushes accordingly).
+
+                NotchPanelBrush, NotchStrokeBrush, NotchAccentBrush and
+                NotchOnAccentBrush are placeholders only — App.xaml.cs
+                (AccentColorService) overwrites their Color at startup and
+                on every live accent change, mirroring how Windows itself
+                treats the accent color: small controls (NotchAccentBrush)
+                always track it, like the Calendar flyout's "today" marker;
+                the pill body (NotchPanelBrush/NotchStrokeBrush) only tints
+                when the user has "Show accent color on Start and taskbar"
+                on, like the taskbar itself. Every consumer below binds via
+                StaticResource to these same brush *instances*, so mutating
+                .Color in place updates the whole UI without any
+                DynamicResource plumbing.
+            -->
+            <SolidColorBrush x:Key="NotchPanelBrush" Color="#D1202020" />
+            <SolidColorBrush x:Key="NotchStrokeBrush" Color="#1AFFFFFF" />
+            <SolidColorBrush x:Key="NotchTextPrimaryBrush" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="NotchTextSecondaryBrush" Color="#A6FFFFFF" />
+            <SolidColorBrush x:Key="NotchTabBarBackgroundBrush" Color="#0FFFFFFF" />
+            <SolidColorBrush x:Key="NotchTabActiveBackgroundBrush" Color="#24FFFFFF" />
+            <SolidColorBrush x:Key="NotchTileBrush" Color="#0FFFFFFF" />
+            <SolidColorBrush x:Key="NotchSliderTrackBrush" Color="#24FFFFFF" />
+
+            <SolidColorBrush x:Key="NotchAccentBrush" Color="#3E93E8" />
+            <SolidColorBrush x:Key="NotchOnAccentBrush" Color="#FFFFFFFF" />
+            <SolidColorBrush x:Key="NotchClaudeBrush" Color="#D97757" />
+            <SolidColorBrush x:Key="NotchWarningBrush" Color="#E8A33E" />
+
+            <FontFamily x:Key="NotchFontFamily">Segoe UI Variable Display, Segoe UI, system-ui</FontFamily>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

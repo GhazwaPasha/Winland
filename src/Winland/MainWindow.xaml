@@ -1,0 +1,398 @@
+<Window x:Class="Winland.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:conv="clr-namespace:Winland.Converters"
+        Title="Winland"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="{x:Null}"
+        ResizeMode="NoResize"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="Manual"
+        SizeToContent="Manual">
+
+    <Window.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
+        <conv:DoubleToDashArrayConverter x:Key="DoubleToDashArray" />
+        <conv:BatteryGlyphConverter x:Key="BatteryGlyph" />
+    </Window.Resources>
+
+    <Border x:Name="Shell"
+            Background="{DynamicResource NotchPanelBrush}"
+            BorderBrush="{DynamicResource NotchStrokeBrush}"
+            BorderThickness="1,0,1,1"
+            CornerRadius="0,0,18,18"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            MouseLeftButtonUp="Shell_MouseLeftButtonUp">
+        <Grid>
+
+            <!-- ==================== Collapsed pill ==================== -->
+            <StackPanel x:Name="CollapsedPanel"
+                        Orientation="Horizontal"
+                        Background="Transparent"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Visibility="{Binding IsCollapsedIconRowVisible, Converter={StaticResource BoolToVis}}">
+
+                <TextBlock Text="&#xE701;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
+                           Foreground="{StaticResource NotchTextPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+
+                <TextBlock Text="{Binding BatteryPercent, Converter={StaticResource BatteryGlyph}}"
+                           FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                           Foreground="{StaticResource NotchTextPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+
+                <TextBlock Text="{Binding TimeText}" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource NotchTextPrimaryBrush}"
+                           VerticalAlignment="Center" Margin="0,0,10,0" />
+
+                <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
+                           VerticalAlignment="Center"
+                           MouseLeftButtonUp="PinIcon_MouseLeftButtonUp">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Text" Value="&#xE718;" />
+                            <Setter Property="Foreground" Value="{StaticResource NotchTextPrimaryBrush}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                    <Setter Property="Foreground" Value="{DynamicResource NotchAccentBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </StackPanel>
+
+            <!-- ==================== Collapsed "now playing" pill ====================
+                 Swapped in for CollapsedPanel while media is actively playing: album art
+                 pinned to one edge, an animated waveform to the other — same idea as a
+                 Dynamic Island reacting to audio. -->
+            <Grid x:Name="CollapsedMediaPanel"
+                  Margin="10,0,10,0"
+                  VerticalAlignment="Center"
+                  Visibility="{Binding IsCollapsedMediaVisible, Converter={StaticResource BoolToVis}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Width="24" Height="24" CornerRadius="5"
+                        Background="{StaticResource NotchTileBrush}" ClipToBounds="True">
+                    <Image Source="{Binding MediaThumbnail}" Stretch="UniformToFill" />
+                </Border>
+
+                <!-- Bar heights are driven from code-behind (StartWaveformAnimation) rather
+                     than a Style trigger here: Storyboard.TargetName can't target a sibling
+                     element from inside a plain Style/DataTrigger — only from a
+                     ControlTemplate/DataTemplate — so a shared Style.Triggers block can't
+                     reach these named Rectangles. -->
+                <StackPanel x:Name="WaveformBars" Grid.Column="2" Orientation="Horizontal"
+                            Height="16" VerticalAlignment="Center">
+                    <Rectangle x:Name="WaveBar1" Width="3" Height="5" Margin="0,0,3,0" RadiusX="1.5" RadiusY="1.5"
+                               VerticalAlignment="Bottom" Fill="{StaticResource NotchTextPrimaryBrush}" />
+                    <Rectangle x:Name="WaveBar2" Width="3" Height="14" Margin="0,0,3,0" RadiusX="1.5" RadiusY="1.5"
+                               VerticalAlignment="Bottom" Fill="{StaticResource NotchTextPrimaryBrush}" />
+                    <Rectangle x:Name="WaveBar3" Width="3" Height="9" Margin="0,0,3,0" RadiusX="1.5" RadiusY="1.5"
+                               VerticalAlignment="Bottom" Fill="{StaticResource NotchTextPrimaryBrush}" />
+                    <Rectangle x:Name="WaveBar4" Width="3" Height="12" RadiusX="1.5" RadiusY="1.5"
+                               VerticalAlignment="Bottom" Fill="{StaticResource NotchTextPrimaryBrush}" />
+                </StackPanel>
+            </Grid>
+
+            <!-- ==================== Expanded flyout ==================== -->
+            <Grid x:Name="ExpandedPanel"
+                  Margin="18,16,18,18"
+                  Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Header -->
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Bottom">
+                        <TextBlock Text="{Binding TimeText}" FontSize="20" FontWeight="SemiBold"
+                                   Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                        <TextBlock Text="{Binding DateText}" FontSize="12" Margin="8,0,0,3"
+                                   Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="&#xE701;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                   Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+
+                        <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"
+                                   MouseLeftButtonUp="PinIcon_MouseLeftButtonUp">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="&#xE718;" />
+                                    <Setter Property="Foreground" Value="{StaticResource NotchTextSecondaryBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource NotchAccentBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+
+                        <TextBlock Text="{Binding BatteryPercent, Converter={StaticResource BatteryGlyph}}"
+                                   FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="18"
+                                   Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,4,0" />
+                        <TextBlock Text="{Binding BatteryPercent, StringFormat={}{0}%}" FontSize="12"
+                                   Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Tab bar -->
+                <Border Grid.Row="1" Margin="0,14,0,0" Background="{StaticResource NotchTabBarBackgroundBrush}" CornerRadius="8" Padding="3">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Grid Grid.Column="0" Background="Transparent" MouseLeftButtonUp="MediaTab_MouseLeftButtonUp">
+                            <Border CornerRadius="6">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsMediaTabSelected}" Value="True">
+                                                <Setter Property="Background" Value="{StaticResource NotchTabActiveBackgroundBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                            <TextBlock Text="Media" FontSize="12" HorizontalAlignment="Center" Margin="0,6"
+                                       Foreground="{StaticResource NotchTextPrimaryBrush}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="Normal" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsMediaTabSelected}" Value="True">
+                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <Grid Grid.Column="1" Background="Transparent" MouseLeftButtonUp="AiTab_MouseLeftButtonUp">
+                            <Border CornerRadius="6">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsAiTabSelected}" Value="True">
+                                                <Setter Property="Background" Value="{StaticResource NotchTabActiveBackgroundBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                            <TextBlock Text="AI" FontSize="12" HorizontalAlignment="Center" Margin="0,6"
+                                       Foreground="{StaticResource NotchTextPrimaryBrush}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="Normal" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsAiTabSelected}" Value="True">
+                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <!-- Tab content -->
+                <Grid Grid.Row="2" Margin="0,14,0,0">
+
+                    <!-- Media tab -->
+                    <StackPanel Orientation="Horizontal"
+                                Visibility="{Binding IsMediaTabSelected, Converter={StaticResource BoolToVis}}">
+                        <Grid Width="64" Height="64" Margin="0,0,12,0">
+                            <Border CornerRadius="8" Background="{StaticResource NotchTileBrush}" />
+                            <Image Source="{Binding MediaThumbnail}" Stretch="UniformToFill"
+                                   Visibility="{Binding HasActiveMediaSession, Converter={StaticResource BoolToVis}}" />
+                        </Grid>
+
+                        <StackPanel Width="288" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding MediaTitle}" FontSize="13" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                            <TextBlock Text="{Binding MediaArtist}" FontSize="11.5" Margin="0,2,0,10"
+                                       TextTrimming="CharacterEllipsis" Foreground="{StaticResource NotchTextSecondaryBrush}" />
+
+                            <ProgressBar Value="{Binding MediaProgress}" Minimum="0" Maximum="1"
+                                         Height="3" Margin="0,0,0,10"
+                                         Foreground="{DynamicResource NotchAccentBrush}"
+                                         Background="{StaticResource NotchSliderTrackBrush}" BorderThickness="0" />
+
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Grid Width="24" Height="24" Background="Transparent" Margin="0,0,16,0" MouseLeftButtonUp="Previous_MouseLeftButtonUp">
+                                    <TextBlock Text="&#xE892;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                </Grid>
+
+                                <Grid Width="30" Height="30" Margin="0,0,16,0" Background="Transparent" MouseLeftButtonUp="PlayPause_MouseLeftButtonUp">
+                                    <Ellipse Fill="{DynamicResource NotchAccentBrush}" />
+                                    <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
+                                               Foreground="{DynamicResource NotchOnAccentBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="&#xE768;" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsMediaPlaying}" Value="True">
+                                                        <Setter Property="Text" Value="&#xE769;" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+
+                                <Grid Width="24" Height="24" Background="Transparent" MouseLeftButtonUp="Next_MouseLeftButtonUp">
+                                    <TextBlock Text="&#xE893;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                </Grid>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- AI tab -->
+                    <StackPanel Visibility="{Binding IsAiTabSelected, Converter={StaticResource BoolToVis}}">
+                        <Grid Margin="0,0,0,14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6" Background="{StaticResource NotchClaudeBrush}">
+                                <TextBlock Text="C" Foreground="White" FontSize="12" FontWeight="Bold"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+
+                            <TextBlock Grid.Column="1" Text="Claude" FontSize="13" FontWeight="SemiBold"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"
+                                       Foreground="{StaticResource NotchTextPrimaryBrush}" />
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse x:Name="StatusDot" Width="6" Height="6" Margin="0,0,5,0"
+                                         Fill="{DynamicResource NotchAccentBrush}">
+                                    <Ellipse.Style>
+                                        <Style TargetType="Ellipse">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsClaudeWorking}" Value="True">
+                                                    <DataTrigger.EnterActions>
+                                                        <BeginStoryboard x:Name="PulseBeginStoryboard">
+                                                            <Storyboard>
+                                                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                                 From="1" To="0.5" Duration="0:0:1.4"
+                                                                                 AutoReverse="True" RepeatBehavior="Forever" />
+                                                            </Storyboard>
+                                                        </BeginStoryboard>
+                                                    </DataTrigger.EnterActions>
+                                                    <DataTrigger.ExitActions>
+                                                        <StopStoryboard BeginStoryboardName="PulseBeginStoryboard" />
+                                                    </DataTrigger.ExitActions>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Ellipse.Style>
+                                </Ellipse>
+                                <TextBlock FontSize="10.5" Foreground="{StaticResource NotchTextSecondaryBrush}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="Idle" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsClaudeWorking}" Value="True">
+                                                    <Setter Property="Text" Value="Working…" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal">
+                            <Grid Width="100" Height="100" Margin="0,0,16,0">
+                                <Ellipse Width="80" Height="80" Stroke="{StaticResource NotchSliderTrackBrush}" StrokeThickness="7" />
+                                <Ellipse Width="54" Height="54" Stroke="{StaticResource NotchSliderTrackBrush}" StrokeThickness="7" />
+
+                                <Ellipse Width="80" Height="80" StrokeThickness="7"
+                                         Stroke="{Binding WeeklyRingBrush}"
+                                         StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                         StrokeDashArray="{Binding OuterCircumference, Converter={StaticResource DoubleToDashArray}}"
+                                         StrokeDashOffset="{Binding OuterDashOffset}"
+                                         RenderTransformOrigin="0.5,0.5">
+                                    <Ellipse.RenderTransform>
+                                        <RotateTransform Angle="-90" />
+                                    </Ellipse.RenderTransform>
+                                </Ellipse>
+
+                                <Ellipse Width="54" Height="54" StrokeThickness="7"
+                                         Stroke="{Binding FiveHourRingBrush}"
+                                         StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                         StrokeDashArray="{Binding InnerCircumference, Converter={StaticResource DoubleToDashArray}}"
+                                         StrokeDashOffset="{Binding InnerDashOffset}"
+                                         RenderTransformOrigin="0.5,0.5">
+                                    <Ellipse.RenderTransform>
+                                        <RotateTransform Angle="-90" />
+                                    </Ellipse.RenderTransform>
+                                </Ellipse>
+
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding WeeklyPercent, StringFormat={}{0}%}" FontSize="17" FontWeight="Bold"
+                                               HorizontalAlignment="Center" Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                    <TextBlock Text="this week" FontSize="8" HorizontalAlignment="Center"
+                                               Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel VerticalAlignment="Center">
+                                <StackPanel Margin="0,0,0,10">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse Width="8" Height="8" Margin="0,0,6,0" Fill="{Binding WeeklyRingBrush}" />
+                                        <TextBlock Text="{Binding WeeklyPercent, StringFormat={}Weekly limit – {0}%}" FontSize="11.5"
+                                                   Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding WeeklyResetText}" FontSize="10" Margin="14,2,0,0"
+                                               Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                                </StackPanel>
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse Width="8" Height="8" Margin="0,0,6,0" Fill="{Binding FiveHourRingBrush}" />
+                                        <TextBlock Text="{Binding FiveHourPercent, StringFormat={}5-hour limit – {0}%}" FontSize="11.5"
+                                                   Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding FiveHourResetText}" FontSize="10" Margin="14,2,0,0"
+                                               Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+        </Border>
+</Window>
