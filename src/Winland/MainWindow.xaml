@@ -44,19 +44,39 @@
         </Style>
     </Window.Resources>
 
-    <Border x:Name="Shell"
-            Background="{DynamicResource NotchPanelBrush}"
-            BorderBrush="{DynamicResource NotchStrokeBrush}"
-            BorderThickness="1,0,1,1"
-            CornerRadius="0,0,18,18"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Top"
-            MouseLeftButtonUp="Shell_MouseLeftButtonUp"
-            AllowDrop="True"
-            DragEnter="Shell_DragEnter"
-            DragOver="Shell_DragOver"
-            Drop="Shell_Drop">
-        <Grid>
+    <Grid x:Name="Shell"
+          Background="Transparent"
+          HorizontalAlignment="Center"
+          VerticalAlignment="Top"
+          MouseLeftButtonUp="Shell_MouseLeftButtonUp"
+          AllowDrop="True"
+          DragEnter="Shell_DragEnter"
+          DragOver="Shell_DragOver"
+          Drop="Shell_Drop">
+
+        <!-- The notch silhouette: a plain rounded-bottom rectangle can't
+             show the Dynamic-Island-style flare at the top corners (it
+             curves outward past the wall, then back in — a Border's
+             single-radius CornerRadius only ever curves one way and never
+             outside its own rect), so the shape is a hand-built Path
+             instead. Fill and stroke are split into two Paths because the
+             stroke deliberately omits the flat top edge (this used to be
+             BorderThickness="1,0,1,1" — no top edge) while the fill needs
+             the full closed outline. Both Data values are rebuilt in
+             code-behind (see BuildShellGeometry) any time Shell resizes,
+             including every frame of the expand/collapse animation. -->
+        <Path x:Name="ShellFillPath" Fill="{DynamicResource NotchPanelBrush}" IsHitTestVisible="False" />
+        <Path x:Name="ShellStrokePath" Stroke="{DynamicResource NotchStrokeBrush}" StrokeThickness="1" IsHitTestVisible="False" />
+
+        <!-- Clipped to the same geometry as ShellFillPath, kept in sync
+             every frame in UpdateShellGeometry — a plain Grid doesn't
+             auto-clip its children the way Border used to whenever
+             CornerRadius was set, so without this the content renders at
+             its full, un-clipped size mid-animation: it visibly outgrows
+             the still-catching-up background shape, reading as a stale
+             ghost of the old (collapsed or expanded) silhouette left
+             behind the new one. -->
+        <Grid x:Name="ShellContent">
 
             <!-- ==================== Collapsed pill ==================== -->
             <StackPanel x:Name="CollapsedPanel"
@@ -645,5 +665,5 @@
                 </Grid>
             </Grid>
         </Grid>
-        </Border>
+    </Grid>
 </Window>

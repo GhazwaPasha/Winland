@@ -67,6 +67,13 @@ public partial class MainWindow : Window
         DataContext = viewModel;
         InitializeComponent();
 
+        // Width/Height animate frame-by-frame during expand/collapse (see
+        // AnimateShellDimension) — rebuilding the outline here, not just
+        // after UpdateShellSize sets its target size, is what keeps the
+        // flared corners glued to the pill mid-animation instead of only
+        // snapping to shape once the animation finishes.
+        Shell.SizeChanged += (_, _) => UpdateShellGeometry();
+
         _viewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(NotchViewModel.IsExpanded) or nameof(NotchViewModel.SelectedTab))
@@ -245,9 +252,6 @@ public partial class MainWindow : Window
     {
         var width = _viewModel.NotchWidth;
         var height = _viewModel.NotchHeight;
-        var radius = _viewModel.NotchCornerRadius;
-
-        Shell.CornerRadius = new CornerRadius(0, 0, radius, radius);
 
         if (!animate || !_loaded)
         {
@@ -255,6 +259,7 @@ public partial class MainWindow : Window
             Shell.BeginAnimation(HeightProperty, null);
             Shell.Width = width;
             Shell.Height = height;
+            UpdateShellGeometry();
             return;
         }
 
@@ -267,6 +272,113 @@ public partial class MainWindow : Window
         var animation = new DoubleAnimationUsingKeyFrames();
         animation.KeyFrames.Add(new SplineDoubleKeyFrame(targetValue, KeyTime.FromTimeSpan(AnimationDuration), _easing));
         Shell.BeginAnimation(property, animation);
+    }
+
+    /// <summary>
+    /// Rebuilds Shell's silhouette (<see cref="ShellFillPath"/> / <see
+    /// cref="ShellStrokePath"/>) for its current size. Hooked to Shell's
+    /// SizeChanged (see the constructor) rather than called only from
+    /// <see cref="UpdateShellSize"/>, because Width/Height animate smoothly
+    /// frame-by-frame during expand/collapse — SizeChanged fires on every
+    /// one of those frames, which is what keeps the flare/corner geometry
+    /// glued to the pill instead of snapping to it only at the end.
+    /// </summary>
+    private void UpdateShellGeometry()
+    {
+        var width = Shell.ActualWidth;
+        var height = Shell.ActualHeight;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        BuildShellGeometry(width, height, _viewModel.NotchCornerRadius, out var fill, out var stroke);
+        ShellFillPath.Data = fill;
+        ShellStrokePath.Data = stroke;
+        ShellContent.Clip = fill;
+    }
+
+    /// <summary>
+    /// Builds the notch outline. The top corners flare: the flush top edge
+    /// runs the full declared width, while the body (the wall running down
+    /// to the bottom corner) sits a little narrower, inset by
+    /// <c>topFlareRadius</c> — so the very top reads as slightly wider than
+    /// the pill beneath it.
+    ///
+    /// Each corner is a *single* ArcSegment, not two curves joined at an
+    /// inflection point like the previous version — at this size, two
+    /// visibly distinct curve segments (however smoothly they're joined)
+    /// read as "curved twice" rather than one graceful bend. The whole
+    /// flare/taper look doesn't actually need an inflection at all: it's
+    /// just an ordinary quarter-circle corner like the bottom ones already
+    /// use, centered at the *un-flared* corner point (topFlareRadius, 0)
+    /// (top-left) rather than the usual inside-the-fill placement — tracing
+    /// the far side of that circle from (0,0) to (topFlareRadius,
+    /// topFlareRadius) bulges the material out to the true edge at the very
+    /// top instead of cutting the corner off, which is the entire effect.
+    ///
+    /// The bottom corners are unchanged in style (still a plain ArcSegment)
+    /// but now round off the inset wall rather than the full width, since
+    /// the wall carries that inset the rest of the way down to them.
+    ///
+    /// The stroke path deliberately omits the flat top edge (mirroring the
+    /// old BorderThickness="1,0,1,1" — no top edge) but still traces
+    /// through both corners, so the curve itself still reads as an edge.
+    /// </summary>
+    private static void BuildShellGeometry(double width, double height, double cornerRadius, out Geometry fill, out Geometry stroke)
+    {
+        var topFlareRadius = cornerRadius * 0.4; // how much narrower the body is than the flush top edge (and the top corner's own radius)
+
+        var wallLeft = topFlareRadius;
+        var wallRight = width - topFlareRadius;
+
+        var leftFlareEnd = new Point(wallLeft, topFlareRadius);
+        var rightFlareEnd = new Point(wallRight, topFlareRadius);
+        var rightWallEnd = new Point(wallRight, height - cornerRadius);
+        var bottomRightCorner = new Point(wallRight - cornerRadius, height);
+        var bottomLeftCorner = new Point(wallLeft + cornerRadius, height);
+        var leftWallEnd = new Point(wallLeft, height - cornerRadius);
+
+        // CounterClockwise (not Clockwise, which is what the bottom corners use) —
+        // these arcs need horizontal tangent at the flush top edge and vertical
+        // tangent at the wall, which for these two particular endpoints only
+        // comes from the circle centered at (flush-edge x, topFlareRadius), not
+        // the one at (wall x, 0) that Clockwise picks. Getting this backwards is
+        // exactly what caused the top edge to meet the wall in a visible kink
+        // (tangent came out vertical at the corner instead of horizontal) instead
+        // of a smooth curve.
+        var topRightArc = new ArcSegment(rightFlareEnd, new Size(topFlareRadius, topFlareRadius), 0, isLargeArc: false, SweepDirection.Counterclockwise, isStroked: true);
+        var topLeftArc = new ArcSegment(new Point(0, 0), new Size(topFlareRadius, topFlareRadius), 0, isLargeArc: false, SweepDirection.Counterclockwise, isStroked: true);
+
+        var fillFigure = new PathFigure { StartPoint = new Point(0, 0), IsClosed = true };
+        fillFigure.Segments.Add(new LineSegment(new Point(width, 0), isStroked: true));
+        fillFigure.Segments.Add(topRightArc);
+        fillFigure.Segments.Add(new LineSegment(rightWallEnd, isStroked: true));
+        fillFigure.Segments.Add(new ArcSegment(bottomRightCorner, new Size(cornerRadius, cornerRadius), 0, isLargeArc: false, SweepDirection.Clockwise, isStroked: true));
+        fillFigure.Segments.Add(new LineSegment(bottomLeftCorner, isStroked: true));
+        fillFigure.Segments.Add(new ArcSegment(leftWallEnd, new Size(cornerRadius, cornerRadius), 0, isLargeArc: false, SweepDirection.Clockwise, isStroked: true));
+        fillFigure.Segments.Add(new LineSegment(leftFlareEnd, isStroked: true));
+        fillFigure.Segments.Add(topLeftArc);
+
+        var fillGeometry = new PathGeometry();
+        fillGeometry.Figures.Add(fillFigure);
+        fillGeometry.Freeze();
+        fill = fillGeometry;
+
+        // Same outline, minus the flat top edge (the first LineSegment above).
+        var strokeFigure = new PathFigure { StartPoint = new Point(width, 0), IsClosed = false };
+        strokeFigure.Segments.Add(topRightArc);
+        strokeFigure.Segments.Add(new LineSegment(rightWallEnd, isStroked: true));
+        strokeFigure.Segments.Add(new ArcSegment(bottomRightCorner, new Size(cornerRadius, cornerRadius), 0, isLargeArc: false, SweepDirection.Clockwise, isStroked: true));
+        strokeFigure.Segments.Add(new LineSegment(bottomLeftCorner, isStroked: true));
+        strokeFigure.Segments.Add(new ArcSegment(leftWallEnd, new Size(cornerRadius, cornerRadius), 0, isLargeArc: false, SweepDirection.Clockwise, isStroked: true));
+        strokeFigure.Segments.Add(new LineSegment(leftFlareEnd, isStroked: true));
+        strokeFigure.Segments.Add(topLeftArc);
+
+        var strokeGeometry = new PathGeometry();
+        strokeGeometry.Figures.Add(strokeFigure);
+        strokeGeometry.Freeze();
+        stroke = strokeGeometry;
     }
 
     /// <summary>
