@@ -30,6 +30,7 @@ public partial class NotchViewModel : ObservableObject
     private readonly ISystemVitalsService _systemVitalsService;
     private readonly IHeadphoneService _headphoneService;
     private readonly IShelfStorageService _shelfStorageService;
+    private readonly IAppSettingsService _appSettingsService;
     private readonly IClaudeUsageProvider _claudeUsageProvider;
     private readonly IAccentColorService _accentColorService;
     private readonly DispatcherTimer _clockTimer;
@@ -41,6 +42,7 @@ public partial class NotchViewModel : ObservableObject
         ISystemVitalsService systemVitalsService,
         IHeadphoneService headphoneService,
         IShelfStorageService shelfStorageService,
+        IAppSettingsService appSettingsService,
         IClaudeUsageProvider claudeUsageProvider,
         IAccentColorService accentColorService)
     {
@@ -51,8 +53,14 @@ public partial class NotchViewModel : ObservableObject
         _systemVitalsService = systemVitalsService;
         _headphoneService = headphoneService;
         _shelfStorageService = shelfStorageService;
+        _appSettingsService = appSettingsService;
         _claudeUsageProvider = claudeUsageProvider;
         _accentColorService = accentColorService;
+
+        // Restore last session's pin state before anything else runs — this
+        // assignment does trigger OnIsPinnedChanged below and re-save the
+        // exact value it just loaded, a harmless no-op round-trip.
+        IsPinned = _appSettingsService.Load().IsPinned;
 
         _mediaService.MediaChanged += (_, _) => RunOnUi(RefreshMedia);
         _batteryService.BatteryChanged += (_, _) => RunOnUi(RefreshBattery);
@@ -101,6 +109,9 @@ public partial class NotchViewModel : ObservableObject
 
     [ObservableProperty]
     private bool isPinned = true;
+
+    /// <summary>CommunityToolkit.Mvvm calls this automatically after every IsPinned change — including the initial restore-on-startup one above.</summary>
+    partial void OnIsPinnedChanged(bool value) => _appSettingsService.Save(new AppSettings(value));
 
     [ObservableProperty]
     private string timeText = string.Empty;

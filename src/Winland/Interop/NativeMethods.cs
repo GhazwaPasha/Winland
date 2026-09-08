@@ -21,24 +21,6 @@ internal struct MONITORINFO
 }
 
 /// <summary>
-/// What the foreground window currently is, for the pin behavior:
-/// <see cref="Fullscreen"/> (real exclusive fullscreen — a game, a video
-/// player) always lets the notch get covered, regardless of pin state,
-/// while <see cref="Maximized"/> is the one the pin actually governs —
-/// pinned stays on top of it, unpinned lets it cover the notch.
-/// <see cref="Normal"/> never lets anything cover the notch. The notch
-/// itself is never hidden for any of this — see MainWindow's
-/// ApplyTopmostState — it just drops out of the topmost z-order band so an
-/// ordinary window naturally paints over it.
-/// </summary>
-public enum ForegroundWindowKind
-{
-    Normal,
-    Maximized,
-    Fullscreen,
-}
-
-/// <summary>
 /// dwLength must be set to this struct's own size before calling
 /// GlobalMemoryStatusEx — the API uses it to version-check the buffer.
 /// dwMemoryLoad arrives pre-computed by Windows as "approximate percentage
@@ -63,10 +45,10 @@ internal struct MEMORYSTATUSEX
 
 /// <summary>
 /// Thin P/Invoke surface for the handful of things WPF has no managed API
-/// for: classifying the foreground window as normal/maximized/fullscreen
-/// (MainWindow's ApplyTopmostState reacts to that via WPF's own Topmost
-/// property, not a native call — see its doc comment for why), and reading
-/// live physical memory usage for the Vitals tab.
+/// for: detecting real exclusive fullscreen (the one thing that overrides
+/// pin), sending the notch to the bottom of the z-order when it shouldn't
+/// be on top of anything, and reading live physical memory usage for the
+/// Vitals tab.
 /// </summary>
 internal static class NativeMethods
 {
@@ -85,10 +67,6 @@ internal static class NativeMethods
     [DllImport(User32, CharSet = CharSet.Unicode)]
     public static extern bool GetMonitorInfoW(nint hMonitor, ref MONITORINFO lpmi);
 
-    [DllImport(User32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool IsZoomed(nint hWnd);
-
     public const uint MONITOR_DEFAULTTONEAREST = 2;
 
     [DllImport(Kernel32, SetLastError = true)]
@@ -102,6 +80,7 @@ internal static class NativeMethods
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
+    private static readonly nint HWND_BOTTOM = 1;
 
     /// <summary>
     /// Moves *and* resizes an HWND in one native call. WPF's own
@@ -125,83 +104,67 @@ internal static class NativeMethods
     }
 
     /// <summary>
-    /// Inserts <paramref name="hWnd"/> immediately behind <paramref
-    /// name="targetHWnd"/> in the z-order, without activating or
-    /// moving/resizing either window. This is deliberately NOT the same
-    /// thing as <c>Window.Topmost = false</c> (which uses the special
-    /// HWND_NOTOPMOST value): per Windows' own documented behavior,
-    /// HWND_NOTOPMOST places a window at the *front* of the entire
-    /// non-topmost band, not wherever it would naturally end up relative to
-    /// whatever's currently focused — so merely dropping Topmost never
-    /// actually puts the notch behind a specific maximized/fullscreen
-    /// window, it just stops it from being above the topmost band, while
-    /// still rendering above that window (confirmed live: the classification
-    /// and the Topmost=false call were both firing correctly and exactly
-    /// once, yet the notch stayed visibly on top the whole time). Passing a
-    /// real window handle here instead inserts directly below that specific
-    /// window, which is the only way to actually get covered by it.
+    /// Drops the notch to the literal bottom of the z-order — below every
+    /// other top-level window, above only the desktop — without activating
+    /// or moving/resizing it. Per Windows' own documented behavior for
+    /// HWND_BOTTOM, this *also* clears the window's topmost status in the
+    /// same call if it had one, so there's no separate "clear Topmost
+    /// first" step needed.
+    ///
+    /// This replaced an earlier design that tried to slot the notch in
+    /// directly behind whichever specific window currently had focus
+    /// (PlaceBehind, since removed) — that needed continuously re-tracking
+    /// a moving target and broke in several subtle ways (a click on the
+    /// notch itself transiently changing the real foreground window; two
+    /// different maximized windows never re-triggering re-anchoring since
+    /// the classification between them didn't change). "Always at the
+    /// absolute bottom" is a static placement that doesn't need
+    /// re-anchoring at all: since nothing else contends for the very
+    /// bottom, any window that becomes active is naturally inserted above
+    /// it, with no further action needed on our part.
     /// </summary>
-    public static void PlaceBehind(nint hWnd, nint targetHWnd)
+    public static void SendToBottom(nint hWnd)
     {
-        SetWindowPos(hWnd, targetHWnd, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        SetWindowPos(hWnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
     /// <summary>
-    /// Classifies the foreground window (ignoring our own notch window):
-    /// <see cref="ForegroundWindowKind.Fullscreen"/> when its rect exactly
-    /// covers the monitor's full bounds (not just the work area) — the
-    /// heuristic real exclusive-fullscreen apps (games, video players)
-    /// satisfy and an ordinary maximized window does not, since a maximized
-    /// window still leaves room for the taskbar.
-    ///
-    /// Otherwise <see cref="ForegroundWindowKind.Maximized"/> when either
-    /// <see cref="IsZoomed"/> (the real WS_MAXIMIZE style bit) is set, *or*
-    /// the window's rect covers the monitor's work area on its own —
-    /// plenty of modern apps with a custom title bar (Windows Terminal,
-    /// VS Code, Chromium-based browsers, etc.) implement "maximize" by
-    /// resizing themselves to the work area by hand rather than calling
-    /// the real OS maximize, so IsZoomed alone misses them and the notch
-    /// would wrongly stay topmost over them regardless of pin. Otherwise
-    /// <see cref="ForegroundWindowKind.Normal"/>.
+    /// Heuristic exclusive-fullscreen check: the foreground window's rect
+    /// exactly covers its monitor's full bounds (not just the work area) —
+    /// real exclusive-fullscreen apps (games, video players) satisfy this,
+    /// an ordinary window (maximized or not) does not, since it still
+    /// leaves room for the taskbar. This is the *only* foreground-window
+    /// classification the pin behavior needs: whether something is merely
+    /// maximized doesn't matter at all — see MainWindow's ApplyTopmostState
+    /// for why "pinned XOR fullscreen" is the entire rule.
     /// </summary>
-    public static ForegroundWindowKind GetForegroundWindowKind(nint ignoreHwnd)
+    public static bool IsForegroundFullscreen(nint fg, nint ignoreHwnd)
     {
-        var fg = GetForegroundWindow();
         if (fg == 0 || fg == ignoreHwnd)
         {
-            return ForegroundWindowKind.Normal;
+            return false;
         }
 
         if (!GetWindowRect(fg, out var windowRect))
         {
-            return IsZoomed(fg) ? ForegroundWindowKind.Maximized : ForegroundWindowKind.Normal;
+            return false;
         }
 
         var monitor = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
         if (monitor == 0)
         {
-            return IsZoomed(fg) ? ForegroundWindowKind.Maximized : ForegroundWindowKind.Normal;
+            return false;
         }
 
         var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
         if (!GetMonitorInfoW(monitor, ref info))
         {
-            return IsZoomed(fg) ? ForegroundWindowKind.Maximized : ForegroundWindowKind.Normal;
+            return false;
         }
 
-        if (windowRect.Left <= info.rcMonitor.Left
+        return windowRect.Left <= info.rcMonitor.Left
             && windowRect.Top <= info.rcMonitor.Top
             && windowRect.Right >= info.rcMonitor.Right
-            && windowRect.Bottom >= info.rcMonitor.Bottom)
-        {
-            return ForegroundWindowKind.Fullscreen;
-        }
-
-        var coversWorkArea = windowRect.Left <= info.rcWork.Left
-            && windowRect.Top <= info.rcWork.Top
-            && windowRect.Right >= info.rcWork.Right
-            && windowRect.Bottom >= info.rcWork.Bottom;
-
-        return IsZoomed(fg) || coversWorkArea ? ForegroundWindowKind.Maximized : ForegroundWindowKind.Normal;
+            && windowRect.Bottom >= info.rcMonitor.Bottom;
     }
 }

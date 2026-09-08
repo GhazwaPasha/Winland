@@ -46,6 +46,8 @@ public partial class MainWindow : Window
 
     private const int WM_NCHITTEST = 0x0084;
     private const nint HTTRANSPARENT = -1;
+    private const int WM_MOUSEACTIVATE = 0x0021;
+    private const nint MA_NOACTIVATE = 3;
 
     private readonly NotchViewModel _viewModel;
     private readonly KeySpline _easing = new(0.2, 0.8, 0.2, 1.0); // matches the design's CSS cubic-bezier(.2,.8,.2,1)
@@ -57,7 +59,7 @@ public partial class MainWindow : Window
     private nint _hwnd;
     private Point _shelfDragStartPoint;
     private bool _shelfDragCandidate;
-    private ForegroundWindowKind _lastForegroundWindowState = ForegroundWindowKind.Normal;
+    private bool _lastIsFullscreen;
 
     public MainWindow(NotchViewModel viewModel)
     {
@@ -77,11 +79,8 @@ public partial class MainWindow : Window
                 UpdateWaveformAnimation();
             }
 
-            // Pin only ever changes what happens for a *maximized* foreground
-            // window (see ApplyTopmostState) — re-evaluate against the last
-            // known state rather than waiting for the next poll, so toggling
-            // pin while already looking at a maximized window takes effect
-            // immediately.
+            // Re-evaluate immediately rather than waiting for the next poll,
+            // so toggling pin takes effect the instant it's clicked.
             if (e.PropertyName == nameof(NotchViewModel.IsPinned))
             {
                 ApplyTopmostState();
@@ -104,7 +103,7 @@ public partial class MainWindow : Window
         ((HwndSource)PresentationSource.FromVisual(this)!).AddHook(WndProc);
 
         _pinTopmostService = new PinTopmostService(_hwnd, Dispatcher);
-        _pinTopmostService.ForegroundWindowStateChanged += OnForegroundWindowStateChanged;
+        _pinTopmostService.FullscreenStateChanged += OnFullscreenStateChanged;
 
         PositionWindowAtMaxSize();
         UpdateShellSize(animate: false);
@@ -113,14 +112,36 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Lets clicks fall through to whatever's underneath everywhere outside
-    /// Shell's current (possibly mid-animation) rendered bounds, since most
-    /// of this window's fixed, maximum-size footprint is normally just
-    /// transparent margin around a smaller pill/flyout. See the class doc
-    /// for why the window no longer tracks Shell's size natively.
+    /// Two unrelated native concerns share this hook because WPF only
+    /// exposes one place to intercept raw window messages per HwndSource:
+    ///
+    /// <list type="bullet">
+    /// <item><b>WM_NCHITTEST</b> — lets clicks fall through to whatever's
+    /// underneath everywhere outside Shell's current (possibly mid-
+    /// animation) rendered bounds, since most of this window's fixed,
+    /// maximum-size footprint is normally just transparent margin around a
+    /// smaller pill/flyout. See the class doc for why the window no longer
+    /// tracks Shell's size natively.</item>
+    /// <item><b>WM_MOUSEACTIVATE</b> — always answers MA_NOACTIVATE, so
+    /// clicking anywhere on the notch (pin, tabs, transport controls, the
+    /// shelf, all of it) never activates this window — the real OS
+    /// foreground window stays whatever app the user was actually using.
+    /// ApplyTopmostState doesn't strictly depend on this for correctness
+    /// any more (it no longer reads GetForegroundWindow() itself), but it's
+    /// still the right behavior for an always-on-top overlay: clicking the
+    /// pin toggle shouldn't be able to steal focus from whatever the user
+    /// was doing, the same non-activating behavior Windows' own Quick
+    /// Settings/volume flyouts use.</item>
+    /// </list>
     /// </summary>
     private nint WndProc(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
     {
+        if (msg == WM_MOUSEACTIVATE)
+        {
+            handled = true;
+            return MA_NOACTIVATE;
+        }
+
         if (msg != WM_NCHITTEST)
         {
             return 0;
@@ -166,40 +187,35 @@ public partial class MainWindow : Window
         NativeMethods.MoveAndResizeWindow(_hwnd, x, 0, cx, cy);
     }
 
-    private void OnForegroundWindowStateChanged(object? sender, ForegroundWindowKind state)
+    private void OnFullscreenStateChanged(object? sender, bool isFullscreen)
     {
-        _lastForegroundWindowState = state;
+        _lastIsFullscreen = isFullscreen;
         Dispatcher.BeginInvoke(ApplyTopmostState);
     }
 
     /// <summary>
-    /// The notch is never hidden for any of this — it stays a real, always-
-    /// "shown" window (see the class doc's HTTRANSPARENT-based click-through
-    /// design) and this only moves it in or out of the topmost z-order band.
+    /// The entire rule: stay on top whenever pinned, unless the foreground
+    /// window is real exclusive fullscreen (a game, a video player) — that
+    /// always wins over pin, since sharing screen space with something
+    /// that owns exclusive fullscreen isn't a thing the notch can do
+    /// cleanly regardless of preference. Unpinned, the notch never sits
+    /// above anything but the bare desktop — not a special case for
+    /// "maximized" windows, just never on top, full stop.
     ///
-    /// Getting "covered" turned out to need more than <c>Topmost = false</c>.
-    /// Confirmed live (pin-debug.log): the foreground-window classification
-    /// and the Topmost assignment were both firing correctly, exactly once
-    /// per real transition — yet the notch stayed visibly on top the whole
-    /// time regardless. The reason is Windows' own documented behavior for
-    /// HWND_NOTOPMOST (what Topmost=false uses under the hood): it places
-    /// the window at the *front of the entire non-topmost band*, not
-    /// wherever it'd naturally sit relative to whatever's currently
-    /// focused. So dropping Topmost only ever stopped the notch from being
-    /// above the topmost band — it kept rendering above the maximized/
-    /// fullscreen window regardless, because it was never actually placed
-    /// behind it. Explicitly inserting the notch directly behind the
-    /// current foreground window's own handle (NativeMethods.PlaceBehind)
-    /// is what actually achieves "covered by it".
+    /// Earlier versions of this tried to classify the foreground window
+    /// (normal/maximized/fullscreen) and slot the notch in relative to
+    /// whichever one currently had focus. That was solving the wrong
+    /// problem — maximized state and focus aren't the same thing, and
+    /// dynamically re-anchoring behind a moving target broke in several
+    /// subtle ways. There's no such target here: "on top" is
+    /// <c>Topmost = true</c>, unambiguous; "not on top" is
+    /// <see cref="NativeMethods.SendToBottom"/>, a static placement that
+    /// needs no re-anchoring, because nothing else contends for the very
+    /// bottom of the z-order — see its doc comment.
     /// </summary>
     private void ApplyTopmostState()
     {
-        var shouldStayOnTop = _lastForegroundWindowState switch
-        {
-            ForegroundWindowKind.Fullscreen => false,
-            ForegroundWindowKind.Maximized => _viewModel.IsPinned,
-            _ => true,
-        };
+        var shouldStayOnTop = _viewModel.IsPinned && !_lastIsFullscreen;
 
         if (shouldStayOnTop)
         {
@@ -207,13 +223,15 @@ public partial class MainWindow : Window
         }
         else
         {
+            // Also clear WPF's own Topmost property here, not just the
+            // native state via SendToBottom — otherwise WPF's cached DP
+            // value never actually changes (SendToBottom bypasses it via a
+            // raw SetWindowPos call), so a *later* `Topmost = true` looks
+            // like a no-op to WPF and it silently skips re-issuing the
+            // native call: unpin once, re-pin, and the notch never
+            // actually comes back on top even though nothing errors.
             Topmost = false;
-
-            var fg = NativeMethods.GetForegroundWindow();
-            if (fg != 0 && fg != _hwnd)
-            {
-                NativeMethods.PlaceBehind(_hwnd, fg);
-            }
+            NativeMethods.SendToBottom(_hwnd);
         }
     }
 
