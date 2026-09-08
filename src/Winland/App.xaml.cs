@@ -33,7 +33,10 @@ public partial class App : Application
 
         var mediaService = new MediaService();
         var batteryService = new BatteryService();
-        var networkStatusService = new NetworkStatusService();
+        var privacyIndicatorService = new PrivacyIndicatorService();
+        var systemVitalsService = new SystemVitalsService();
+        var headphoneService = new HeadphoneService();
+        var shelfStorageService = new ShelfStorageService();
         var claudeUsageProvider = new MockClaudeUsageProvider();
         var accentColorService = new AccentColorService();
         _accentColorService = accentColorService;
@@ -41,7 +44,9 @@ public partial class App : Application
         accentColorService.Changed += (_, _) => Dispatcher.Invoke(ApplyAccentColors);
         ApplyAccentColors();
 
-        var viewModel = new NotchViewModel(mediaService, batteryService, networkStatusService, claudeUsageProvider, accentColorService);
+        var viewModel = new NotchViewModel(
+            mediaService, batteryService, privacyIndicatorService, systemVitalsService, headphoneService, shelfStorageService,
+            claudeUsageProvider, accentColorService);
 
         _window = new MainWindow(viewModel);
         _window.Show();

@@ -17,6 +17,31 @@
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
         <conv:DoubleToDashArrayConverter x:Key="DoubleToDashArray" />
         <conv:BatteryGlyphConverter x:Key="BatteryGlyph" />
+
+        <!-- Shared by the cam/mic status dots (collapsed + expanded, 4 total) — a
+             slow breathing fade rather than a static dot, so an active indicator
+             reads as "live" at a glance instead of looking like a painted-on icon.
+             Starts on Loaded rather than on Visibility becoming true: these dots
+             use Visibility="Collapsed" (not removed from the tree), so Loaded
+             fires once at window startup and the animation just runs continuously
+             underneath, invisible whenever the dot itself is collapsed. -->
+        <Style x:Key="PulsingDotStyle" TargetType="Ellipse">
+            <Style.Triggers>
+                <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                    <BeginStoryboard>
+                        <Storyboard RepeatBehavior="Forever">
+                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                             From="1.0" To="0.35" Duration="0:0:1.8"
+                                             AutoReverse="True">
+                                <DoubleAnimation.EasingFunction>
+                                    <SineEase EasingMode="EaseInOut" />
+                                </DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
+                        </Storyboard>
+                    </BeginStoryboard>
+                </EventTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Border x:Name="Shell"
@@ -26,7 +51,11 @@
             CornerRadius="0,0,18,18"
             HorizontalAlignment="Center"
             VerticalAlignment="Top"
-            MouseLeftButtonUp="Shell_MouseLeftButtonUp">
+            MouseLeftButtonUp="Shell_MouseLeftButtonUp"
+            AllowDrop="True"
+            DragEnter="Shell_DragEnter"
+            DragOver="Shell_DragOver"
+            Drop="Shell_Drop">
         <Grid>
 
             <!-- ==================== Collapsed pill ==================== -->
@@ -37,8 +66,27 @@
                         VerticalAlignment="Center"
                         Visibility="{Binding IsCollapsedIconRowVisible, Converter={StaticResource BoolToVis}}">
 
-                <TextBlock Text="&#xE701;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
-                           Foreground="{StaticResource NotchTextPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <Ellipse Width="6" Height="6" Margin="0,0,6,0" VerticalAlignment="Center"
+                         Style="{StaticResource PulsingDotStyle}"
+                         Fill="{StaticResource NotchCamActiveBrush}"
+                         Visibility="{Binding IsCameraInUse, Converter={StaticResource BoolToVis}}" />
+                <Ellipse Width="6" Height="6" Margin="0,0,8,0" VerticalAlignment="Center"
+                         Style="{StaticResource PulsingDotStyle}"
+                         Fill="{StaticResource NotchWarningBrush}"
+                         Visibility="{Binding IsMicInUse, Converter={StaticResource BoolToVis}}" />
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0"
+                            Visibility="{Binding IsHeadphoneConnected, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="&#xE7F6;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
+                               Foreground="{StaticResource NotchTextPrimaryBrush}"
+                               Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource InverseBoolToVis}}" />
+                    <Path Data="{StaticResource SurfaceEarbudsGeometry}" Stretch="Uniform" Width="13" Height="13"
+                          Fill="{StaticResource NotchTextPrimaryBrush}"
+                          Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource BoolToVis}}" />
+                    <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="10" Margin="3,0,0,0"
+                               Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center"
+                               Visibility="{Binding HasHeadphoneBattery, Converter={StaticResource BoolToVis}}" />
+                </StackPanel>
 
                 <TextBlock Text="{Binding BatteryPercent, Converter={StaticResource BatteryGlyph}}"
                            FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
@@ -48,21 +96,20 @@
                            Foreground="{StaticResource NotchTextPrimaryBrush}"
                            VerticalAlignment="Center" Margin="0,0,10,0" />
 
-                <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
-                           VerticalAlignment="Center"
-                           MouseLeftButtonUp="PinIcon_MouseLeftButtonUp">
-                    <TextBlock.Style>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="Text" Value="&#xE718;" />
-                            <Setter Property="Foreground" Value="{StaticResource NotchTextPrimaryBrush}" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
-                                    <Setter Property="Foreground" Value="{DynamicResource NotchAccentBrush}" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBlock.Style>
-                </TextBlock>
+                <!-- Only rendered while pinned — like the cam/mic dots above, this
+                     is a "notable state" indicator, not a permanent status readout.
+                     Unpinning always happens via the same lock chip in the expanded
+                     header; clicking this one (while it's visible) still unpins
+                     directly, same as the old pin icon did. -->
+                <Grid Margin="0,0,10,0" VerticalAlignment="Center"
+                      MouseLeftButtonUp="PinIcon_MouseLeftButtonUp"
+                      Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}">
+                    <Border Width="18" Height="16" CornerRadius="6"
+                            Background="{StaticResource NotchTabBarBackgroundBrush}" />
+                    <TextBlock Text="&#xE72E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
+                               Foreground="{DynamicResource NotchAccentBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Grid>
             </StackPanel>
 
             <!-- ==================== Collapsed "now playing" pill ====================
@@ -79,7 +126,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <Border Grid.Column="0" Width="24" Height="24" CornerRadius="5"
+                <Border Grid.Column="0" Width="24" Height="24" CornerRadius="12"
                         Background="{StaticResource NotchTileBrush}" ClipToBounds="True">
                     <Image Source="{Binding MediaThumbnail}" Stretch="UniformToFill" />
                 </Border>
@@ -127,24 +174,51 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="&#xE701;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
-                                   Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <Ellipse Width="6" Height="6" Margin="0,0,6,0" VerticalAlignment="Center"
+                                 Style="{StaticResource PulsingDotStyle}"
+                                 Fill="{StaticResource NotchCamActiveBrush}"
+                                 Visibility="{Binding IsCameraInUse, Converter={StaticResource BoolToVis}}" />
+                        <Ellipse Width="6" Height="6" Margin="0,0,8,0" VerticalAlignment="Center"
+                                 Style="{StaticResource PulsingDotStyle}"
+                                 Fill="{StaticResource NotchWarningBrush}"
+                                 Visibility="{Binding IsMicInUse, Converter={StaticResource BoolToVis}}" />
 
-                        <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
-                                   VerticalAlignment="Center" Margin="0,0,8,0"
-                                   MouseLeftButtonUp="PinIcon_MouseLeftButtonUp">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Text" Value="&#xE718;" />
-                                    <Setter Property="Foreground" Value="{StaticResource NotchTextSecondaryBrush}" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsPinned}" Value="True">
-                                            <Setter Property="Foreground" Value="{DynamicResource NotchAccentBrush}" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0"
+                                    Visibility="{Binding IsHeadphoneConnected, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="&#xE7F6;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                                       Foreground="{StaticResource NotchTextSecondaryBrush}"
+                                       Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource InverseBoolToVis}}" />
+                            <Path Data="{StaticResource SurfaceEarbudsGeometry}" Stretch="Uniform" Width="14" Height="14"
+                                  Fill="{StaticResource NotchTextSecondaryBrush}"
+                                  Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="11" Margin="3,0,0,0"
+                                       Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center"
+                                       Visibility="{Binding HasHeadphoneBattery, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+
+                        <!-- Always visible here (unlike the collapsed one) — this is the
+                             one place both pinned and unpinned states, and the actual
+                             toggle, live. -->
+                        <Grid Margin="0,0,8,0" VerticalAlignment="Center"
+                              MouseLeftButtonUp="PinIcon_MouseLeftButtonUp">
+                            <Border Width="22" Height="20" CornerRadius="6"
+                                    Background="{StaticResource NotchTabBarBackgroundBrush}" />
+                            <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="&#xE785;" />
+                                        <Setter Property="Foreground" Value="{StaticResource NotchTextSecondaryBrush}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                <Setter Property="Text" Value="&#xE72E;" />
+                                                <Setter Property="Foreground" Value="{DynamicResource NotchAccentBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
 
                         <TextBlock Text="{Binding BatteryPercent, Converter={StaticResource BatteryGlyph}}"
                                    FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="18"
@@ -158,6 +232,8 @@
                 <Border Grid.Row="1" Margin="0,14,0,0" Background="{StaticResource NotchTabBarBackgroundBrush}" CornerRadius="8" Padding="3">
                     <Grid>
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
@@ -210,6 +286,62 @@
                                         <Setter Property="FontWeight" Value="Normal" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsAiTabSelected}" Value="True">
+                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <Grid Grid.Column="2" Background="Transparent" MouseLeftButtonUp="VitalsTab_MouseLeftButtonUp">
+                            <Border CornerRadius="6">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsVitalsTabSelected}" Value="True">
+                                                <Setter Property="Background" Value="{StaticResource NotchTabActiveBackgroundBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                            <TextBlock Text="Vitals" FontSize="12" HorizontalAlignment="Center" Margin="0,6"
+                                       Foreground="{StaticResource NotchTextPrimaryBrush}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="Normal" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsVitalsTabSelected}" Value="True">
+                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <Grid Grid.Column="3" Background="Transparent" MouseLeftButtonUp="ShelfTab_MouseLeftButtonUp">
+                            <Border CornerRadius="6">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsShelfTabSelected}" Value="True">
+                                                <Setter Property="Background" Value="{StaticResource NotchTabActiveBackgroundBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+                            <TextBlock Text="Shelf" FontSize="12" HorizontalAlignment="Center" Margin="0,6"
+                                       Foreground="{StaticResource NotchTextPrimaryBrush}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="Normal" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsShelfTabSelected}" Value="True">
                                                 <Setter Property="FontWeight" Value="SemiBold" />
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -391,6 +523,125 @@
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
+
+                    <!-- Vitals tab -->
+                    <StackPanel Visibility="{Binding IsVitalsTabSelected, Converter={StaticResource BoolToVis}}">
+                        <Grid Margin="0,0,0,12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="CPU" FontSize="11.5" Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                <TextBlock Grid.Column="1" Text="{Binding CpuPercent, StringFormat={}{0:0}%}" FontSize="11.5"
+                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                            </Grid>
+                            <ProgressBar Grid.Row="1" Value="{Binding CpuPercent}" Minimum="0" Maximum="100"
+                                         Height="4" Margin="0,5,0,0"
+                                         Foreground="{DynamicResource NotchAccentBrush}"
+                                         Background="{StaticResource NotchSliderTrackBrush}" BorderThickness="0" />
+                        </Grid>
+
+                        <Grid Margin="0,0,0,12">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Memory" FontSize="11.5" Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                <TextBlock Grid.Column="1" Text="{Binding RamPercent, StringFormat={}{0:0}%}" FontSize="11.5"
+                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                            </Grid>
+                            <ProgressBar Grid.Row="1" Value="{Binding RamPercent}" Minimum="0" Maximum="100"
+                                         Height="4" Margin="0,5,0,0"
+                                         Foreground="{DynamicResource NotchAccentBrush}"
+                                         Background="{StaticResource NotchSliderTrackBrush}" BorderThickness="0" />
+                        </Grid>
+
+                        <Grid Margin="0,0,0,14">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Disk" FontSize="11.5" Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                <TextBlock Grid.Column="1" Text="{Binding DiskPercent, StringFormat={}{0:0}%}" FontSize="11.5"
+                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                            </Grid>
+                            <ProgressBar Grid.Row="1" Value="{Binding DiskPercent}" Minimum="0" Maximum="100"
+                                         Height="4" Margin="0,5,0,0"
+                                         Foreground="{DynamicResource NotchAccentBrush}"
+                                         Background="{StaticResource NotchSliderTrackBrush}" BorderThickness="0" />
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Download" FontSize="10" Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                                <TextBlock Text="{Binding NetworkDownKBs, StringFormat={}{0:0.0} KB/s}" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="Upload" FontSize="10" Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                                <TextBlock Text="{Binding NetworkUpKBs, StringFormat={}{0:0.0} KB/s}" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Shelf tab -->
+                    <Grid Visibility="{Binding IsShelfTabSelected, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Drag files onto the notch" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{StaticResource NotchTextSecondaryBrush}"
+                                   Visibility="{Binding IsShelfEmpty, Converter={StaticResource BoolToVis}}" />
+
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="150"
+                                      Visibility="{Binding IsShelfEmpty, Converter={StaticResource InverseBoolToVis}}">
+                            <ItemsControl ItemsSource="{Binding ShelfItems}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Width="72" Height="76" Margin="0,0,10,10" CornerRadius="8"
+                                                Background="{StaticResource NotchTileBrush}"
+                                                PreviewMouseLeftButtonDown="ShelfChip_PreviewMouseLeftButtonDown"
+                                                MouseMove="ShelfChip_MouseMove">
+                                            <Grid>
+                                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                    <Image Source="{Binding Icon}" Width="28" Height="28" HorizontalAlignment="Center" />
+                                                    <TextBlock Text="{Binding DisplayName}" FontSize="9.5" Margin="4,4,4,0" MaxWidth="64"
+                                                               TextAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                               Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                                </StackPanel>
+                                                <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
+                                                           HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,3,3,0"
+                                                           Foreground="{StaticResource NotchTextSecondaryBrush}"
+                                                           MouseLeftButtonUp="RemoveShelfItem_MouseLeftButtonUp" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
                 </Grid>
             </Grid>
         </Grid>

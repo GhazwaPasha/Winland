@@ -1,10 +1,13 @@
 using System;
+using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Winland.Models;
 using Winland.Services;
 
 namespace Winland.ViewModels;
@@ -23,7 +26,10 @@ public partial class NotchViewModel : ObservableObject
     private readonly Dispatcher _dispatcher;
     private readonly IMediaService _mediaService;
     private readonly IBatteryService _batteryService;
-    private readonly INetworkStatusService _networkStatusService;
+    private readonly IPrivacyIndicatorService _privacyIndicatorService;
+    private readonly ISystemVitalsService _systemVitalsService;
+    private readonly IHeadphoneService _headphoneService;
+    private readonly IShelfStorageService _shelfStorageService;
     private readonly IClaudeUsageProvider _claudeUsageProvider;
     private readonly IAccentColorService _accentColorService;
     private readonly DispatcherTimer _clockTimer;
@@ -31,27 +37,39 @@ public partial class NotchViewModel : ObservableObject
     public NotchViewModel(
         IMediaService mediaService,
         IBatteryService batteryService,
-        INetworkStatusService networkStatusService,
+        IPrivacyIndicatorService privacyIndicatorService,
+        ISystemVitalsService systemVitalsService,
+        IHeadphoneService headphoneService,
+        IShelfStorageService shelfStorageService,
         IClaudeUsageProvider claudeUsageProvider,
         IAccentColorService accentColorService)
     {
         _dispatcher = Dispatcher.CurrentDispatcher;
         _mediaService = mediaService;
         _batteryService = batteryService;
-        _networkStatusService = networkStatusService;
+        _privacyIndicatorService = privacyIndicatorService;
+        _systemVitalsService = systemVitalsService;
+        _headphoneService = headphoneService;
+        _shelfStorageService = shelfStorageService;
         _claudeUsageProvider = claudeUsageProvider;
         _accentColorService = accentColorService;
 
         _mediaService.MediaChanged += (_, _) => RunOnUi(RefreshMedia);
         _batteryService.BatteryChanged += (_, _) => RunOnUi(RefreshBattery);
-        _networkStatusService.ConnectivityChanged += (_, _) => RunOnUi(RefreshConnectivity);
+        _privacyIndicatorService.Changed += (_, _) => RunOnUi(RefreshPrivacyIndicators);
+        _systemVitalsService.Changed += (_, _) => RunOnUi(RefreshVitals);
+        _headphoneService.Changed += (_, _) => RunOnUi(RefreshHeadphone);
         _accentColorService.Changed += (_, _) => RunOnUi(RefreshAccentColor);
+        ShelfItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(IsShelfEmpty));
 
         RefreshClock();
         RefreshMedia();
         RefreshBattery();
-        RefreshConnectivity();
+        RefreshPrivacyIndicators();
+        RefreshVitals();
+        RefreshHeadphone();
         RefreshClaudeUsage();
+        LoadShelf();
 
         _clockTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _clockTimer.Tick += (_, _) =>
@@ -72,11 +90,13 @@ public partial class NotchViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsCollapsedMediaVisible))]
     private bool isExpanded;
 
-    /// <summary>"Media" or "Ai" — the Quick Settings / Apps segments were dropped from scope.</summary>
+    /// <summary>"Media", "Ai", "Vitals" or "Shelf" — the Quick Settings / Apps segments were dropped from scope.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(NotchHeight))]
     [NotifyPropertyChangedFor(nameof(IsMediaTabSelected))]
     [NotifyPropertyChangedFor(nameof(IsAiTabSelected))]
+    [NotifyPropertyChangedFor(nameof(IsVitalsTabSelected))]
+    [NotifyPropertyChangedFor(nameof(IsShelfTabSelected))]
     private string selectedTab = "Media";
 
     [ObservableProperty]
@@ -92,10 +112,52 @@ public partial class NotchViewModel : ObservableObject
     private int batteryPercent = 100;
 
     [ObservableProperty]
-    private bool isWifiConnected = true;
+    private bool isMicInUse;
+
+    [ObservableProperty]
+    private bool isCameraInUse;
+
+    // ---- Vitals tab (CPU/RAM/disk/network) ----
+
+    [ObservableProperty]
+    private double cpuPercent;
+
+    [ObservableProperty]
+    private double ramPercent;
+
+    [ObservableProperty]
+    private double diskPercent;
+
+    [ObservableProperty]
+    private double networkDownKBs;
+
+    [ObservableProperty]
+    private double networkUpKBs;
+
+    // ---- Headphone status ----
+
+    [ObservableProperty]
+    private bool isHeadphoneConnected;
+
+    [ObservableProperty]
+    private bool isHeadphoneWireless;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasHeadphoneBattery))]
+    private int? headphoneBatteryPercent;
+
+    public bool HasHeadphoneBattery => HeadphoneBatteryPercent.HasValue;
+
+    // ---- Shelf tab (persisted drag-and-drop file references) ----
+
+    public ObservableCollection<ShelfItem> ShelfItems { get; } = new();
+
+    public bool IsShelfEmpty => ShelfItems.Count == 0;
 
     public bool IsMediaTabSelected => SelectedTab == "Media";
     public bool IsAiTabSelected => SelectedTab == "Ai";
+    public bool IsVitalsTabSelected => SelectedTab == "Vitals";
+    public bool IsShelfTabSelected => SelectedTab == "Shelf";
 
     // The largest footprint the notch ever takes (AI tab, expanded). The
     // window itself is sized to exactly this, once, at startup, and never
@@ -211,6 +273,30 @@ public partial class NotchViewModel : ObservableObject
     [RelayCommand]
     private async Task MediaPreviousAsync() => await _mediaService.SkipPreviousAsync();
 
+    /// <summary>
+    /// Adds a dropped path to the shelf (deduped, case-insensitive) and
+    /// persists. <paramref name="path"/> is trusted to exist already — it
+    /// came straight from a live OS drag-and-drop payload.
+    /// </summary>
+    [RelayCommand]
+    private void AddShelfItem(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || ShelfItems.Any(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        ShelfItems.Add(ShelfItem.Create(path));
+        PersistShelf();
+    }
+
+    [RelayCommand]
+    private void RemoveShelfItem(ShelfItem item)
+    {
+        ShelfItems.Remove(item);
+        PersistShelf();
+    }
+
     // ---- Refresh helpers ----
 
     private void RefreshClock()
@@ -232,7 +318,39 @@ public partial class NotchViewModel : ObservableObject
 
     private void RefreshBattery() => BatteryPercent = _batteryService.CurrentPercent;
 
-    private void RefreshConnectivity() => IsWifiConnected = _networkStatusService.IsConnected;
+    private void RefreshPrivacyIndicators()
+    {
+        IsMicInUse = _privacyIndicatorService.IsMicInUse;
+        IsCameraInUse = _privacyIndicatorService.IsCameraInUse;
+    }
+
+    private void RefreshVitals()
+    {
+        var snapshot = _systemVitalsService.Snapshot;
+        CpuPercent = snapshot.CpuPercent;
+        RamPercent = snapshot.RamPercent;
+        DiskPercent = snapshot.DiskPercent;
+        NetworkDownKBs = snapshot.NetworkDownKBs;
+        NetworkUpKBs = snapshot.NetworkUpKBs;
+    }
+
+    private void RefreshHeadphone()
+    {
+        var snapshot = _headphoneService.Snapshot;
+        IsHeadphoneConnected = snapshot.IsConnected;
+        IsHeadphoneWireless = snapshot.IsWireless;
+        HeadphoneBatteryPercent = snapshot.BatteryPercent;
+    }
+
+    private void LoadShelf()
+    {
+        foreach (var path in _shelfStorageService.LoadPaths())
+        {
+            ShelfItems.Add(ShelfItem.Create(path));
+        }
+    }
+
+    private void PersistShelf() => _shelfStorageService.SavePaths(ShelfItems.Select(i => i.Path));
 
     // WeeklyRingBrush reads _accentColorService.Accent directly rather than
     // through an [ObservableProperty], so a live accent change needs an

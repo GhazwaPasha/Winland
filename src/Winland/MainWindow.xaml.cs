@@ -8,6 +8,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using H.NotifyIcon;
 using Winland.Interop;
+using Winland.Models;
 using Winland.Services;
 using Winland.ViewModels;
 
@@ -54,6 +55,9 @@ public partial class MainWindow : Window
     private bool _trayVisible = true;
     private bool _loaded;
     private nint _hwnd;
+    private Point _shelfDragStartPoint;
+    private bool _shelfDragCandidate;
+    private ForegroundWindowKind _lastForegroundWindowState = ForegroundWindowKind.Normal;
 
     public MainWindow(NotchViewModel viewModel)
     {
@@ -71,6 +75,16 @@ public partial class MainWindow : Window
             if (e.PropertyName == nameof(NotchViewModel.ShowMediaInCollapsedPill))
             {
                 UpdateWaveformAnimation();
+            }
+
+            // Pin only ever changes what happens for a *maximized* foreground
+            // window (see ApplyTopmostState) — re-evaluate against the last
+            // known state rather than waiting for the next poll, so toggling
+            // pin while already looking at a maximized window takes effect
+            // immediately.
+            if (e.PropertyName == nameof(NotchViewModel.IsPinned))
+            {
+                ApplyTopmostState();
             }
         };
 
@@ -90,7 +104,7 @@ public partial class MainWindow : Window
         ((HwndSource)PresentationSource.FromVisual(this)!).AddHook(WndProc);
 
         _pinTopmostService = new PinTopmostService(_hwnd, Dispatcher);
-        _pinTopmostService.FullscreenStateChanged += OnFullscreenStateChanged;
+        _pinTopmostService.ForegroundWindowStateChanged += OnForegroundWindowStateChanged;
 
         PositionWindowAtMaxSize();
         UpdateShellSize(animate: false);
@@ -152,19 +166,55 @@ public partial class MainWindow : Window
         NativeMethods.MoveAndResizeWindow(_hwnd, x, 0, cx, cy);
     }
 
-    private void OnFullscreenStateChanged(object? sender, bool isFullscreen)
+    private void OnForegroundWindowStateChanged(object? sender, ForegroundWindowKind state)
     {
-        Dispatcher.BeginInvoke(() =>
+        _lastForegroundWindowState = state;
+        Dispatcher.BeginInvoke(ApplyTopmostState);
+    }
+
+    /// <summary>
+    /// The notch is never hidden for any of this — it stays a real, always-
+    /// "shown" window (see the class doc's HTTRANSPARENT-based click-through
+    /// design) and this only moves it in or out of the topmost z-order band.
+    ///
+    /// Getting "covered" turned out to need more than <c>Topmost = false</c>.
+    /// Confirmed live (pin-debug.log): the foreground-window classification
+    /// and the Topmost assignment were both firing correctly, exactly once
+    /// per real transition — yet the notch stayed visibly on top the whole
+    /// time regardless. The reason is Windows' own documented behavior for
+    /// HWND_NOTOPMOST (what Topmost=false uses under the hood): it places
+    /// the window at the *front of the entire non-topmost band*, not
+    /// wherever it'd naturally sit relative to whatever's currently
+    /// focused. So dropping Topmost only ever stopped the notch from being
+    /// above the topmost band — it kept rendering above the maximized/
+    /// fullscreen window regardless, because it was never actually placed
+    /// behind it. Explicitly inserting the notch directly behind the
+    /// current foreground window's own handle (NativeMethods.PlaceBehind)
+    /// is what actually achieves "covered by it".
+    /// </summary>
+    private void ApplyTopmostState()
+    {
+        var shouldStayOnTop = _lastForegroundWindowState switch
         {
-            if (isFullscreen && !_viewModel.IsPinned)
+            ForegroundWindowKind.Fullscreen => false,
+            ForegroundWindowKind.Maximized => _viewModel.IsPinned,
+            _ => true,
+        };
+
+        if (shouldStayOnTop)
+        {
+            Topmost = true;
+        }
+        else
+        {
+            Topmost = false;
+
+            var fg = NativeMethods.GetForegroundWindow();
+            if (fg != 0 && fg != _hwnd)
             {
-                Hide();
+                NativeMethods.PlaceBehind(_hwnd, fg);
             }
-            else if (!IsVisible)
-            {
-                Show();
-            }
-        });
+        }
     }
 
     /// <summary>
@@ -269,6 +319,98 @@ public partial class MainWindow : Window
     {
         e.Handled = true;
         _viewModel.SelectTabCommand.Execute("Ai");
+    }
+
+    private void VitalsTab_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        _viewModel.SelectTabCommand.Execute("Vitals");
+    }
+
+    private void ShelfTab_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        _viewModel.SelectTabCommand.Execute("Shelf");
+    }
+
+    private void RemoveShelfItem_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is FrameworkElement { DataContext: ShelfItem item })
+        {
+            _viewModel.RemoveShelfItemCommand.Execute(item);
+        }
+    }
+
+    // ---- Shelf drag-out (a chip dragged back onto the desktop/Explorer) ----
+
+    private void ShelfChip_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _shelfDragStartPoint = e.GetPosition(null);
+        _shelfDragCandidate = true;
+    }
+
+    private void ShelfChip_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_shelfDragCandidate || e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        var current = e.GetPosition(null);
+        var delta = _shelfDragStartPoint - current;
+        if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+
+        _shelfDragCandidate = false;
+
+        if (sender is not FrameworkElement { DataContext: ShelfItem item } element)
+        {
+            return;
+        }
+
+        DragDrop.DoDragDrop(element, new DataObject(DataFormats.FileDrop, new[] { item.Path }), DragDropEffects.Copy | DragDropEffects.Move);
+    }
+
+    // ---- Shelf drag-in (files dropped onto the notch from Explorer/desktop) ----
+
+    private void Shell_DragEnter(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effects = DragDropEffects.None;
+            return;
+        }
+
+        e.Effects = DragDropEffects.Copy;
+
+        // Auto-reveal the Shelf tab — same "reacts to activity" idea as the
+        // collapsed pill swapping to the now-playing layout — so dropping a
+        // file works without navigating there manually first.
+        _viewModel.IsExpanded = true;
+        _viewModel.SelectTabCommand.Execute("Shelf");
+    }
+
+    private void Shell_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void Shell_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths)
+        {
+            return;
+        }
+
+        foreach (var path in paths)
+        {
+            _viewModel.AddShelfItemCommand.Execute(path);
+        }
     }
 
     private void PlayPause_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
