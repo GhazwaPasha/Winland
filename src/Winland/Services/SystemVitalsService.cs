@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.NetworkInformation;
 using System.Windows.Threading;
 using Winland.Interop;
@@ -8,7 +9,7 @@ using Winland.Interop;
 namespace Winland.Services;
 
 /// <summary>
-/// Samples CPU/RAM/disk/network once a second for the Vitals tab. Unlike
+/// Samples CPU/RAM/disk/GPU/network once a second for the Vitals tab. Unlike
 /// the OS-signal services elsewhere in this app (battery, media, accent),
 /// none of these have a push/event API — they're all read-on-demand
 /// counters — so this owns its own timer and raises one <see cref="Changed"/>
@@ -18,16 +19,19 @@ namespace Winland.Services;
 public sealed class SystemVitalsService : ISystemVitalsService, IDisposable
 {
     private static readonly TimeSpan SampleInterval = TimeSpan.FromSeconds(1);
+    private const string GpuEngineCategory = "GPU Engine";
+    private const string GpuUtilizationCounter = "Utilization Percentage";
 
     private readonly DispatcherTimer _timer;
     private readonly PerformanceCounter? _cpuCounter;
     private readonly string _systemDriveRoot;
+    private readonly bool _gpuCounterAvailable;
 
     private DateTime _lastNetworkSampleAt;
     private long _lastBytesReceived;
     private long _lastBytesSent;
 
-    public SystemVitalsSnapshot Snapshot { get; private set; } = new(0, 0, 0, 0, 0);
+    public SystemVitalsSnapshot Snapshot { get; private set; } = new(0, 0, 0, 0, 0, 0);
 
     public event EventHandler? Changed;
 
@@ -46,6 +50,19 @@ public sealed class SystemVitalsService : ISystemVitalsService, IDisposable
             _cpuCounter = null;
         }
 
+        // "GPU Engine" (Windows 10 1803+) has no single "_Total" instance the
+        // way "Processor" does — just checking the category exists once here
+        // avoids re-probing PerformanceCounterCategory.Exists on every tick.
+        try
+        {
+            _gpuCounterAvailable = PerformanceCounterCategory.Exists(GpuEngineCategory);
+        }
+        catch
+        {
+            // Same "locked-down environment" possibility as the CPU counter above — GPU stays 0.
+            _gpuCounterAvailable = false;
+        }
+
         (_lastBytesReceived, _lastBytesSent) = ReadNetworkTotals();
         _lastNetworkSampleAt = DateTime.UtcNow;
 
@@ -56,7 +73,7 @@ public sealed class SystemVitalsService : ISystemVitalsService, IDisposable
 
     private void Refresh()
     {
-        double cpu = 0, ram = 0, disk = 0, down = 0, up = 0;
+        double cpu = 0, ram = 0, disk = 0, gpu = 0, down = 0, up = 0;
 
         try { cpu = _cpuCounter?.NextValue() ?? 0; }
         catch { /* counter can go stale if it's process-count-dependent; keep last-known-good via 0 */ }
@@ -67,10 +84,13 @@ public sealed class SystemVitalsService : ISystemVitalsService, IDisposable
         try { disk = ReadDiskPercent(); }
         catch { }
 
+        try { gpu = ReadGpuPercent(); }
+        catch { }
+
         try { (down, up) = ReadNetworkRatesKBs(); }
         catch { }
 
-        Snapshot = new SystemVitalsSnapshot(cpu, ram, disk, down, up);
+        Snapshot = new SystemVitalsSnapshot(cpu, ram, disk, gpu, down, up);
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -90,6 +110,47 @@ public sealed class SystemVitalsService : ISystemVitalsService, IDisposable
 
         var used = drive.TotalSize - drive.AvailableFreeSpace;
         return used * 100.0 / drive.TotalSize;
+    }
+
+    /// <summary>
+    /// There's no single "GPU % used" counter the way "Processor\% Processor
+    /// Time\_Total" exists for CPU — the "GPU Engine" category instead
+    /// exposes one instance per process-per-engine (3D, Copy, VideoDecode,
+    /// ...), created and destroyed as processes come and go, which is also
+    /// why (unlike the CPU counter) these can't be built once in the
+    /// constructor and reused. This sums "Utilization Percentage" across
+    /// every 3D-engine instance, the same "engtype_3D" convention Task
+    /// Manager's own GPU graph uses by default — a reasonable proxy for
+    /// "how busy is the GPU" without pulling in a vendor SDK (NVML/ADL) just
+    /// for one number on a status tab.
+    /// </summary>
+    private double ReadGpuPercent()
+    {
+        if (!_gpuCounterAvailable)
+        {
+            return 0;
+        }
+
+        var instanceNames = new PerformanceCounterCategory(GpuEngineCategory)
+            .GetInstanceNames()
+            .Where(name => name.Contains("engtype_3D", StringComparison.OrdinalIgnoreCase));
+
+        double total = 0;
+        foreach (var instanceName in instanceNames)
+        {
+            try
+            {
+                using var counter = new PerformanceCounter(GpuEngineCategory, GpuUtilizationCounter, instanceName, readOnly: true);
+                total += counter.NextValue();
+            }
+            catch
+            {
+                // Instance can vanish between GetInstanceNames() and construction
+                // (its process exited in between) — just skip it.
+            }
+        }
+
+        return Math.Min(100, total);
     }
 
     private (double DownKBs, double UpKBs) ReadNetworkRatesKBs()

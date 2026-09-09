@@ -8,10 +8,14 @@ public sealed record ClaudeUsageSnapshot(
     bool IsWorking);
 
 /// <summary>
-/// Seam for the AI tab's usage numbers. There is no public local API for a
-/// Claude account's usage percentages, so this is mocked for now — swap in
-/// a real implementation here (e.g. reading from a local Claude Code/desktop
-/// session or an authenticated usage endpoint) without touching the UI.
+/// Seam for the AI tab's usage numbers. There is no public API for a
+/// Claude.ai subscription's usage limits (the Anthropic Developer API's
+/// usage/cost endpoints cover API-key spend, a different thing, and require
+/// a key this app has no business asking for) — so the current
+/// implementation reports an explicit "not connected" state rather than
+/// invented numbers dressed up as live data. Swap in a real implementation
+/// here without touching the UI if a legitimate local/authenticated source
+/// ever exists.
 /// </summary>
 public interface IClaudeUsageProvider
 {

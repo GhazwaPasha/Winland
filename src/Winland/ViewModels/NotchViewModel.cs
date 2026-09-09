@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Media;
@@ -84,6 +85,7 @@ public partial class NotchViewModel : ObservableObject
         {
             RefreshClock();
             RefreshClaudeUsage();
+            PruneMissingShelfItems();
         };
         _clockTimer.Start();
     }
@@ -107,6 +109,20 @@ public partial class NotchViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsShelfTabSelected))]
     private string selectedTab = "Media";
 
+    /// <summary>
+    /// Re-check the shelf the moment the user actually looks at it, rather
+    /// than waiting for the next 30-second clock tick (see PruneMissingShelfItems)
+    /// — switching to a tab full of ghost chips for files moved since the
+    /// last check would be a worse first impression than a same-tick prune.
+    /// </summary>
+    partial void OnSelectedTabChanged(string value)
+    {
+        if (value == "Shelf")
+        {
+            PruneMissingShelfItems();
+        }
+    }
+
     [ObservableProperty]
     private bool isPinned = true;
 
@@ -128,22 +144,42 @@ public partial class NotchViewModel : ObservableObject
     [ObservableProperty]
     private bool isCameraInUse;
 
-    // ---- Vitals tab (CPU/RAM/disk/network) ----
+    // ---- Vitals tab (CPU/RAM/disk/GPU/network) ----
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CpuDashOffset))]
     private double cpuPercent;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RamDashOffset))]
     private double ramPercent;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DiskDashOffset))]
     private double diskPercent;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GpuDashOffset))]
+    private double gpuPercent;
 
     [ObservableProperty]
     private double networkDownKBs;
 
     [ObservableProperty]
     private double networkUpKBs;
+
+    // The four Vitals rings are all the same size, unlike the AI tab's two
+    // differently-sized concentric rings — so one shared radius/circumference
+    // pair covers all of them, and each metric only needs its own DashOffset.
+    // See OuterCircumference/OuterDashOffset above for how the
+    // circumference-in-stroke-thickness-units trick works.
+    public double VitalsRingRadius => 22;
+    public double VitalsRingStrokeWidth => 5;
+    public double VitalsRingCircumference => 2 * Math.PI * VitalsRingRadius / VitalsRingStrokeWidth;
+    public double CpuDashOffset => VitalsRingCircumference * (1 - CpuPercent / 100.0);
+    public double RamDashOffset => VitalsRingCircumference * (1 - RamPercent / 100.0);
+    public double DiskDashOffset => VitalsRingCircumference * (1 - DiskPercent / 100.0);
+    public double GpuDashOffset => VitalsRingCircumference * (1 - GpuPercent / 100.0);
 
     // ---- Headphone status ----
 
@@ -287,7 +323,11 @@ public partial class NotchViewModel : ObservableObject
     /// <summary>
     /// Adds a dropped path to the shelf (deduped, case-insensitive) and
     /// persists. <paramref name="path"/> is trusted to exist already — it
-    /// came straight from a live OS drag-and-drop payload.
+    /// came straight from a live OS drag-and-drop payload. The chip appears
+    /// immediately (<see cref="ShelfItem.CreatePending"/> — no icon yet,
+    /// <see cref="ShelfItem.IsIconLoading"/> true) rather than waiting on the
+    /// icon lookup, which is Shell/COM interop and can take a real moment;
+    /// <see cref="LoadShelfIconAsync"/> fills the icon in once it resolves.
     /// </summary>
     [RelayCommand]
     private void AddShelfItem(string path)
@@ -297,8 +337,11 @@ public partial class NotchViewModel : ObservableObject
             return;
         }
 
-        ShelfItems.Add(ShelfItem.Create(path));
+        var pending = ShelfItem.CreatePending(path);
+        ShelfItems.Add(pending);
         PersistShelf();
+
+        _ = LoadShelfIconAsync(pending);
     }
 
     [RelayCommand]
@@ -306,6 +349,29 @@ public partial class NotchViewModel : ObservableObject
     {
         ShelfItems.Remove(item);
         PersistShelf();
+    }
+
+    /// <summary>
+    /// Runs the actual icon/thumbnail lookup off the UI thread, then swaps
+    /// the placeholder chip for a second record carrying the result — never
+    /// mutates in place, since <see cref="ShelfItem"/> is an immutable
+    /// record; replacing by index raises the CollectionChanged the
+    /// ItemsControl needs to redraw just that one chip. If the chip was
+    /// removed (e.g. dragged back out) while the lookup was still running,
+    /// IndexOf comes back -1 and this is a no-op — nothing re-adds it.
+    /// </summary>
+    private async Task LoadShelfIconAsync(ShelfItem pending)
+    {
+        var icon = await Task.Run(() => ShelfItem.LoadIcon(pending.Path));
+
+        RunOnUi(() =>
+        {
+            var index = ShelfItems.IndexOf(pending);
+            if (index >= 0)
+            {
+                ShelfItems[index] = pending with { Icon = icon, IsIconLoading = false };
+            }
+        });
     }
 
     // ---- Refresh helpers ----
@@ -341,6 +407,7 @@ public partial class NotchViewModel : ObservableObject
         CpuPercent = snapshot.CpuPercent;
         RamPercent = snapshot.RamPercent;
         DiskPercent = snapshot.DiskPercent;
+        GpuPercent = snapshot.GpuPercent;
         NetworkDownKBs = snapshot.NetworkDownKBs;
         NetworkUpKBs = snapshot.NetworkUpKBs;
     }
@@ -357,11 +424,39 @@ public partial class NotchViewModel : ObservableObject
     {
         foreach (var path in _shelfStorageService.LoadPaths())
         {
-            ShelfItems.Add(ShelfItem.Create(path));
+            var pending = ShelfItem.CreatePending(path);
+            ShelfItems.Add(pending);
+            _ = LoadShelfIconAsync(pending);
         }
     }
 
     private void PersistShelf() => _shelfStorageService.SavePaths(ShelfItems.Select(i => i.Path));
+
+    /// <summary>
+    /// Drops any shelf chip whose file no longer resolves — moved, renamed,
+    /// or deleted since it was added. <see cref="ShelfStorageService"/> only
+    /// ever did this re-validation once, at startup load; a chip for a file
+    /// that disappeared mid-session used to just sit there as a ghost until
+    /// someone noticed and hit its remove (x) button by hand. Called from
+    /// the existing 30-second clock tick (a background backstop) and again
+    /// the instant the Shelf tab is selected (so switching to it doesn't
+    /// show stale chips for even one tick).
+    /// </summary>
+    private void PruneMissingShelfItems()
+    {
+        var missing = ShelfItems.Where(i => !File.Exists(i.Path) && !Directory.Exists(i.Path)).ToList();
+        if (missing.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var item in missing)
+        {
+            ShelfItems.Remove(item);
+        }
+
+        PersistShelf();
+    }
 
     // WeeklyRingBrush reads _accentColorService.Accent directly rather than
     // through an [ObservableProperty], so a live accent change needs an

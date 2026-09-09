@@ -42,6 +42,33 @@
                 </EventTrigger>
             </Style.Triggers>
         </Style>
+
+        <!-- Same breathing-fade idea as PulsingDotStyle above, generalized to
+             FrameworkElement (rather than Ellipse-only) so the Shelf tab's
+             loading placeholder — a plain glyph, not a dot — can use it too.
+             The Shelf's icon lookup is Shell/COM interop (see
+             ShellThumbnailProvider) and can take a real moment for a video or
+             a networked path; without this, a just-dropped chip either
+             blocked the drop until it resolved or, once that was made async,
+             sat there with a blank icon slot and nothing to suggest anything
+             was happening. -->
+        <Style x:Key="PulsingOpacityStyle" TargetType="FrameworkElement">
+            <Style.Triggers>
+                <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                    <BeginStoryboard>
+                        <Storyboard RepeatBehavior="Forever">
+                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                             From="0.9" To="0.3" Duration="0:0:0.9"
+                                             AutoReverse="True">
+                                <DoubleAnimation.EasingFunction>
+                                    <SineEase EasingMode="EaseInOut" />
+                                </DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
+                        </Storyboard>
+                    </BeginStoryboard>
+                </EventTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid x:Name="Shell"
@@ -86,6 +113,16 @@
                         VerticalAlignment="Center"
                         Visibility="{Binding IsCollapsedIconRowVisible, Converter={StaticResource BoolToVis}}">
 
+                <!-- Identity block: the clock always anchors the left edge, in both
+                     the collapsed pill and the expanded header below. The status
+                     block that follows keeps the exact same element order in both
+                     states too (cam/mic -> headphone -> pin -> battery), so
+                     expanding reads as one object reshaping instead of elements
+                     swapping sides. -->
+                <TextBlock Text="{Binding TimeText}" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource NotchTextPrimaryBrush}"
+                           VerticalAlignment="Center" Margin="0,0,10,0" />
+
                 <Ellipse Width="6" Height="6" Margin="0,0,6,0" VerticalAlignment="Center"
                          Style="{StaticResource PulsingDotStyle}"
                          Fill="{StaticResource NotchCamActiveBrush}"
@@ -97,10 +134,10 @@
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0"
                             Visibility="{Binding IsHeadphoneConnected, Converter={StaticResource BoolToVis}}">
-                    <TextBlock Text="&#xE7F6;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
+                    <TextBlock Text="&#xE7F6;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
                                Foreground="{StaticResource NotchTextPrimaryBrush}"
                                Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource InverseBoolToVis}}" />
-                    <Path Data="{StaticResource SurfaceEarbudsGeometry}" Stretch="Uniform" Width="13" Height="13"
+                    <Path Data="{StaticResource SurfaceEarbudsGeometry}" Stretch="Uniform" Width="14" Height="14"
                           Fill="{StaticResource NotchTextPrimaryBrush}"
                           Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource BoolToVis}}" />
                     <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="10" Margin="3,0,0,0"
@@ -108,28 +145,28 @@
                                Visibility="{Binding HasHeadphoneBattery, Converter={StaticResource BoolToVis}}" />
                 </StackPanel>
 
-                <TextBlock Text="{Binding BatteryPercent, Converter={StaticResource BatteryGlyph}}"
-                           FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
-                           Foreground="{StaticResource NotchTextPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
-
-                <TextBlock Text="{Binding TimeText}" FontSize="11" FontWeight="SemiBold"
-                           Foreground="{StaticResource NotchTextPrimaryBrush}"
-                           VerticalAlignment="Center" Margin="0,0,10,0" />
-
                 <!-- Only rendered while pinned — like the cam/mic dots above, this
                      is a "notable state" indicator, not a permanent status readout.
                      Unpinning always happens via the same lock chip in the expanded
                      header; clicking this one (while it's visible) still unpins
                      directly, same as the old pin icon did. -->
-                <Grid Margin="0,0,10,0" VerticalAlignment="Center"
+                <!-- Same footprint (20x20, radius 4) and icon size (12) as the
+                     expanded header's pin chip below — this is the same
+                     control in two states, so it shouldn't visibly resize
+                     between them. -->
+                <Grid Margin="0,0,8,0" VerticalAlignment="Center"
                       MouseLeftButtonUp="PinIcon_MouseLeftButtonUp"
                       Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}">
-                    <Border Width="18" Height="16" CornerRadius="6"
+                    <Border Width="20" Height="20" CornerRadius="4"
                             Background="{StaticResource NotchTabBarBackgroundBrush}" />
-                    <TextBlock Text="&#xE72E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
+                    <TextBlock Text="&#xE72E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
                                Foreground="{DynamicResource NotchAccentBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Grid>
+
+                <TextBlock Text="{Binding BatteryPercent, Converter={StaticResource BatteryGlyph}}"
+                           FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                           Foreground="{StaticResource NotchTextPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,10,0" />
             </StackPanel>
 
             <!-- ==================== Collapsed "now playing" pill ====================
@@ -137,7 +174,7 @@
                  pinned to one edge, an animated waveform to the other — same idea as a
                  Dynamic Island reacting to audio. -->
             <Grid x:Name="CollapsedMediaPanel"
-                  Margin="17,0,17,0"
+                  Margin="16,0,16,0"
                   VerticalAlignment="Center"
                   Visibility="{Binding IsCollapsedMediaVisible, Converter={StaticResource BoolToVis}}">
                 <Grid.ColumnDefinitions>
@@ -217,19 +254,24 @@
                             <Path Data="{StaticResource SurfaceEarbudsGeometry}" Stretch="Uniform" Width="14" Height="14"
                                   Fill="{StaticResource NotchTextSecondaryBrush}"
                                   Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource BoolToVis}}" />
-                            <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="11" Margin="3,0,0,0"
-                                       Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center"
+                            <!-- Deliberately smaller than the PC battery % at the end of this
+                                 row — two same-size "N%" readouts in one row read as one
+                                 number duplicated before you've parsed which device is which. -->
+                            <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="10" Margin="3,0,0,0"
+                                       Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center" Opacity="0.85"
                                        Visibility="{Binding HasHeadphoneBattery, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
 
                         <!-- Always visible here (unlike the collapsed one) — this is the
                              one place both pinned and unpinned states, and the actual
                              toggle, live. -->
+                        <!-- Same footprint (20x20, radius 4) and icon size (12) as the
+                             collapsed pill's pin chip — see the note there. -->
                         <Grid Margin="0,0,8,0" VerticalAlignment="Center"
                               MouseLeftButtonUp="PinIcon_MouseLeftButtonUp">
-                            <Border Width="22" Height="20" CornerRadius="6"
+                            <Border Width="20" Height="20" CornerRadius="4"
                                     Background="{StaticResource NotchTabBarBackgroundBrush}" />
-                            <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
+                            <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
                                        HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
@@ -246,8 +288,10 @@
                             </TextBlock>
                         </Grid>
 
+                        <!-- Same size (16) as the collapsed pill's battery glyph — see
+                             the pin chip note above; same reasoning applies here. -->
                         <TextBlock Text="{Binding BatteryPercent, Converter={StaticResource BatteryGlyph}}"
-                                   FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="18"
+                                   FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
                                    Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,4,0" />
                         <TextBlock Text="{Binding BatteryPercent, StringFormat={}{0}%}" FontSize="12"
                                    Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center" />
@@ -255,7 +299,7 @@
                 </Grid>
 
                 <!-- Tab bar -->
-                <Border Grid.Row="1" Margin="0,14,0,0" Background="{StaticResource NotchTabBarBackgroundBrush}" CornerRadius="8" Padding="3">
+                <Border Grid.Row="1" Margin="0,14,0,0" Background="{StaticResource NotchTabBarBackgroundBrush}" CornerRadius="8" Padding="4">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -265,7 +309,7 @@
                         </Grid.ColumnDefinitions>
 
                         <Grid Grid.Column="0" Background="Transparent" MouseLeftButtonUp="MediaTab_MouseLeftButtonUp">
-                            <Border CornerRadius="6">
+                            <Border CornerRadius="4">
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Setter Property="Background" Value="Transparent" />
@@ -277,7 +321,7 @@
                                     </Style>
                                 </Border.Style>
                             </Border>
-                            <TextBlock Text="&#xEC4F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                            <TextBlock Text="&#xEC4F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,7"
                                        Foreground="{StaticResource NotchTextPrimaryBrush}" ToolTip="Media">
                                 <TextBlock.Style>
@@ -286,6 +330,7 @@
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsMediaTabSelected}" Value="True">
                                                 <Setter Property="Opacity" Value="1" />
+                                                <Setter Property="Foreground" Value="{DynamicResource NotchAccentBrush}" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -294,7 +339,7 @@
                         </Grid>
 
                         <Grid Grid.Column="1" Background="Transparent" MouseLeftButtonUp="AiTab_MouseLeftButtonUp">
-                            <Border CornerRadius="6">
+                            <Border CornerRadius="4">
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Setter Property="Background" Value="Transparent" />
@@ -306,7 +351,7 @@
                                     </Style>
                                 </Border.Style>
                             </Border>
-                            <TextBlock Text="&#xE99A;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                            <TextBlock Text="&#xE99A;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,7"
                                        Foreground="{StaticResource NotchTextPrimaryBrush}" ToolTip="AI">
                                 <TextBlock.Style>
@@ -315,6 +360,7 @@
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsAiTabSelected}" Value="True">
                                                 <Setter Property="Opacity" Value="1" />
+                                                <Setter Property="Foreground" Value="{DynamicResource NotchAccentBrush}" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -323,7 +369,7 @@
                         </Grid>
 
                         <Grid Grid.Column="2" Background="Transparent" MouseLeftButtonUp="VitalsTab_MouseLeftButtonUp">
-                            <Border CornerRadius="6">
+                            <Border CornerRadius="4">
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Setter Property="Background" Value="Transparent" />
@@ -335,7 +381,7 @@
                                     </Style>
                                 </Border.Style>
                             </Border>
-                            <TextBlock Text="&#xE9D9;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                            <TextBlock Text="&#xE9D9;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,7"
                                        Foreground="{StaticResource NotchTextPrimaryBrush}" ToolTip="Vitals">
                                 <TextBlock.Style>
@@ -344,6 +390,7 @@
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsVitalsTabSelected}" Value="True">
                                                 <Setter Property="Opacity" Value="1" />
+                                                <Setter Property="Foreground" Value="{DynamicResource NotchAccentBrush}" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -352,7 +399,7 @@
                         </Grid>
 
                         <Grid Grid.Column="3" Background="Transparent" MouseLeftButtonUp="ShelfTab_MouseLeftButtonUp">
-                            <Border CornerRadius="6">
+                            <Border CornerRadius="4">
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Setter Property="Background" Value="Transparent" />
@@ -364,7 +411,7 @@
                                     </Style>
                                 </Border.Style>
                             </Border>
-                            <TextBlock Text="&#xE7C3;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                            <TextBlock Text="&#xE723;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,7"
                                        Foreground="{StaticResource NotchTextPrimaryBrush}" ToolTip="Shelf">
                                 <TextBlock.Style>
@@ -373,6 +420,7 @@
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsShelfTabSelected}" Value="True">
                                                 <Setter Property="Opacity" Value="1" />
+                                                <Setter Property="Foreground" Value="{DynamicResource NotchAccentBrush}" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -390,6 +438,13 @@
                                 Visibility="{Binding IsMediaTabSelected, Converter={StaticResource BoolToVis}}">
                         <Grid Width="64" Height="64" Margin="0,0,12,0">
                             <Border CornerRadius="8" Background="{StaticResource NotchTileBrush}" />
+                            <!-- Idle placeholder — reuses the Media tab's own glyph, so an
+                                 empty tile reads as "no track loaded" at a glance instead of
+                                 as a blank, unfinished-looking square. -->
+                            <TextBlock Text="&#xEC4F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="20"
+                                       Foreground="{StaticResource NotchTextSecondaryBrush}" Opacity="0.5"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Visibility="{Binding HasActiveMediaSession, Converter={StaticResource InverseBoolToVis}}" />
                             <!-- Border.CornerRadius only rounds the Border's own background, not
                                  child content, so the Image needs its own clip geometry too. -->
                             <Image Source="{Binding MediaThumbnail}" Stretch="UniformToFill"
@@ -403,7 +458,7 @@
                         <StackPanel Width="288" VerticalAlignment="Center">
                             <TextBlock Text="{Binding MediaTitle}" FontSize="13" FontWeight="SemiBold"
                                        TextTrimming="CharacterEllipsis" Foreground="{StaticResource NotchTextPrimaryBrush}" />
-                            <TextBlock Text="{Binding MediaArtist}" FontSize="11.5" Margin="0,2,0,10"
+                            <TextBlock Text="{Binding MediaArtist}" FontSize="11" Margin="0,2,0,10"
                                        TextTrimming="CharacterEllipsis" Foreground="{StaticResource NotchTextSecondaryBrush}" />
 
                             <ProgressBar Value="{Binding MediaProgress}" Minimum="0" Maximum="1"
@@ -411,7 +466,22 @@
                                          Foreground="{DynamicResource NotchAccentBrush}"
                                          Background="{StaticResource NotchSliderTrackBrush}" BorderThickness="0" />
 
+                            <!-- Dimmed and click-through while nothing is loaded, so the
+                                 transport row reads as idle rather than as active controls
+                                 that just happen to do nothing when pressed. -->
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
+                                        <Setter Property="Opacity" Value="1" />
+                                        <Setter Property="IsHitTestVisible" Value="True" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasActiveMediaSession}" Value="False">
+                                                <Setter Property="Opacity" Value="0.4" />
+                                                <Setter Property="IsHitTestVisible" Value="False" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </StackPanel.Style>
                                 <Grid Width="24" Height="24" Background="Transparent" Margin="0,0,16,0" MouseLeftButtonUp="Previous_MouseLeftButtonUp">
                                     <TextBlock Text="&#xE892;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
                                                HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -420,7 +490,7 @@
 
                                 <Grid Width="30" Height="30" Margin="0,0,16,0" Background="Transparent" MouseLeftButtonUp="PlayPause_MouseLeftButtonUp">
                                     <Ellipse Fill="{DynamicResource NotchAccentBrush}" />
-                                    <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13"
+                                    <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
                                                Foreground="{DynamicResource NotchOnAccentBrush}"
                                                HorizontalAlignment="Center" VerticalAlignment="Center">
                                         <TextBlock.Style>
@@ -490,7 +560,7 @@
                                         </Style>
                                     </Ellipse.Style>
                                 </Ellipse>
-                                <TextBlock FontSize="10.5" Foreground="{StaticResource NotchTextSecondaryBrush}">
+                                <TextBlock FontSize="10" Foreground="{StaticResource NotchTextSecondaryBrush}">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Text" Value="Idle" />
@@ -505,7 +575,13 @@
                             </StackPanel>
                         </Grid>
 
-                        <StackPanel Orientation="Horizontal">
+                        <!-- Centered as a unit, unlike before — a horizontal StackPanel
+                             doesn't fill its parent's width just because nothing stopped
+                             it from stretching, so this used to hug the left edge with a
+                             large dead gap on the right. Now that Vitals centers its own
+                             ring row edge-to-edge, an AI tab that didn't match read as
+                             visibly lopsided immediately after it. -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                             <Grid Width="100" Height="100" Margin="0,0,16,0">
                                 <Ellipse Width="80" Height="80" Stroke="{StaticResource NotchSliderTrackBrush}" StrokeThickness="7" />
                                 <Ellipse Width="54" Height="54" Stroke="{StaticResource NotchSliderTrackBrush}" StrokeThickness="7" />
@@ -533,9 +609,9 @@
                                 </Ellipse>
 
                                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding WeeklyPercent, StringFormat={}{0}%}" FontSize="17" FontWeight="Bold"
+                                    <TextBlock Text="{Binding WeeklyPercent, StringFormat={}{0}%}" FontSize="15" FontWeight="Bold"
                                                HorizontalAlignment="Center" Foreground="{StaticResource NotchTextPrimaryBrush}" />
-                                    <TextBlock Text="this week" FontSize="8" HorizontalAlignment="Center"
+                                    <TextBlock Text="this week" FontSize="10" HorizontalAlignment="Center"
                                                Foreground="{StaticResource NotchTextSecondaryBrush}" />
                                 </StackPanel>
                             </Grid>
@@ -544,7 +620,7 @@
                                 <StackPanel Margin="0,0,0,10">
                                     <StackPanel Orientation="Horizontal">
                                         <Ellipse Width="8" Height="8" Margin="0,0,6,0" Fill="{Binding WeeklyRingBrush}" />
-                                        <TextBlock Text="{Binding WeeklyPercent, StringFormat={}Weekly limit – {0}%}" FontSize="11.5"
+                                        <TextBlock Text="{Binding WeeklyPercent, StringFormat={}Weekly limit – {0}%}" FontSize="11"
                                                    Foreground="{StaticResource NotchTextPrimaryBrush}" />
                                     </StackPanel>
                                     <TextBlock Text="{Binding WeeklyResetText}" FontSize="10" Margin="14,2,0,0"
@@ -553,7 +629,7 @@
                                 <StackPanel>
                                     <StackPanel Orientation="Horizontal">
                                         <Ellipse Width="8" Height="8" Margin="0,0,6,0" Fill="{Binding FiveHourRingBrush}" />
-                                        <TextBlock Text="{Binding FiveHourPercent, StringFormat={}5-hour limit – {0}%}" FontSize="11.5"
+                                        <TextBlock Text="{Binding FiveHourPercent, StringFormat={}5-hour limit – {0}%}" FontSize="11"
                                                    Foreground="{StaticResource NotchTextPrimaryBrush}" />
                                     </StackPanel>
                                     <TextBlock Text="{Binding FiveHourResetText}" FontSize="10" Margin="14,2,0,0"
@@ -565,80 +641,149 @@
 
                     <!-- Vitals tab -->
                     <StackPanel Visibility="{Binding IsVitalsTabSelected, Converter={StaticResource BoolToVis}}">
-                        <Grid Margin="0,0,0,12">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Grid Grid.Row="0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="CPU" FontSize="11.5" Foreground="{StaticResource NotchTextPrimaryBrush}" />
-                                <TextBlock Grid.Column="1" Text="{Binding CpuPercent, StringFormat={}{0:0}%}" FontSize="11.5"
-                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
-                            </Grid>
-                            <ProgressBar Grid.Row="1" Value="{Binding CpuPercent}" Minimum="0" Maximum="100"
-                                         Height="4" Margin="0,5,0,0"
-                                         Foreground="{DynamicResource NotchAccentBrush}"
-                                         Background="{StaticResource NotchSliderTrackBrush}" BorderThickness="0" />
-                        </Grid>
-
-                        <Grid Margin="0,0,0,12">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Grid Grid.Row="0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Memory" FontSize="11.5" Foreground="{StaticResource NotchTextPrimaryBrush}" />
-                                <TextBlock Grid.Column="1" Text="{Binding RamPercent, StringFormat={}{0:0}%}" FontSize="11.5"
-                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
-                            </Grid>
-                            <ProgressBar Grid.Row="1" Value="{Binding RamPercent}" Minimum="0" Maximum="100"
-                                         Height="4" Margin="0,5,0,0"
-                                         Foreground="{DynamicResource NotchAccentBrush}"
-                                         Background="{StaticResource NotchSliderTrackBrush}" BorderThickness="0" />
-                        </Grid>
-
+                        <!-- Four equal-size live rings (CPU/Memory/Disk/GPU) instead of the
+                             stacked bars this used to be — one bar row per metric didn't
+                             scale cleanly to a fourth metric, and rings read as "live gauges"
+                             at a glance the way the AI tab's usage ring already does, so this
+                             also brings Vitals into the same visual language instead of being
+                             the one tab still using flat bars. All four share one ring size
+                             (VitalsRingRadius/VitalsRingCircumference in the view model) —
+                             only each ring's DashOffset differs per metric. -->
                         <Grid Margin="0,0,0,14">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Grid Grid.Row="0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Disk" FontSize="11.5" Foreground="{StaticResource NotchTextPrimaryBrush}" />
-                                <TextBlock Grid.Column="1" Text="{Binding DiskPercent, StringFormat={}{0:0}%}" FontSize="11.5"
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                                <Grid Width="44" Height="44">
+                                    <Ellipse Width="44" Height="44" Stroke="{StaticResource NotchSliderTrackBrush}" StrokeThickness="5" />
+                                    <Ellipse Width="44" Height="44" StrokeThickness="5"
+                                             Stroke="{DynamicResource NotchAccentBrush}"
+                                             StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                             StrokeDashArray="{Binding VitalsRingCircumference, Converter={StaticResource DoubleToDashArray}}"
+                                             StrokeDashOffset="{Binding CpuDashOffset}"
+                                             RenderTransformOrigin="0.5,0.5">
+                                        <Ellipse.RenderTransform>
+                                            <RotateTransform Angle="-90" />
+                                        </Ellipse.RenderTransform>
+                                    </Ellipse>
+                                    <TextBlock Text="{Binding CpuPercent, StringFormat={}{0:0}%}" FontSize="10" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                </Grid>
+                                <TextBlock Text="CPU" FontSize="10" Margin="0,4,0,0" HorizontalAlignment="Center"
                                            Foreground="{StaticResource NotchTextSecondaryBrush}" />
-                            </Grid>
-                            <ProgressBar Grid.Row="1" Value="{Binding DiskPercent}" Minimum="0" Maximum="100"
-                                         Height="4" Margin="0,5,0,0"
-                                         Foreground="{DynamicResource NotchAccentBrush}"
-                                         Background="{StaticResource NotchSliderTrackBrush}" BorderThickness="0" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                                <Grid Width="44" Height="44">
+                                    <Ellipse Width="44" Height="44" Stroke="{StaticResource NotchSliderTrackBrush}" StrokeThickness="5" />
+                                    <Ellipse Width="44" Height="44" StrokeThickness="5"
+                                             Stroke="{DynamicResource NotchAccentBrush}"
+                                             StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                             StrokeDashArray="{Binding VitalsRingCircumference, Converter={StaticResource DoubleToDashArray}}"
+                                             StrokeDashOffset="{Binding RamDashOffset}"
+                                             RenderTransformOrigin="0.5,0.5">
+                                        <Ellipse.RenderTransform>
+                                            <RotateTransform Angle="-90" />
+                                        </Ellipse.RenderTransform>
+                                    </Ellipse>
+                                    <TextBlock Text="{Binding RamPercent, StringFormat={}{0:0}%}" FontSize="10" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                </Grid>
+                                <TextBlock Text="Memory" FontSize="10" Margin="0,4,0,0" HorizontalAlignment="Center"
+                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                                <Grid Width="44" Height="44">
+                                    <Ellipse Width="44" Height="44" Stroke="{StaticResource NotchSliderTrackBrush}" StrokeThickness="5" />
+                                    <Ellipse Width="44" Height="44" StrokeThickness="5"
+                                             Stroke="{DynamicResource NotchAccentBrush}"
+                                             StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                             StrokeDashArray="{Binding VitalsRingCircumference, Converter={StaticResource DoubleToDashArray}}"
+                                             StrokeDashOffset="{Binding DiskDashOffset}"
+                                             RenderTransformOrigin="0.5,0.5">
+                                        <Ellipse.RenderTransform>
+                                            <RotateTransform Angle="-90" />
+                                        </Ellipse.RenderTransform>
+                                    </Ellipse>
+                                    <TextBlock Text="{Binding DiskPercent, StringFormat={}{0:0}%}" FontSize="10" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                </Grid>
+                                <TextBlock Text="Disk" FontSize="10" Margin="0,4,0,0" HorizontalAlignment="Center"
+                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="3" HorizontalAlignment="Center">
+                                <Grid Width="44" Height="44">
+                                    <Ellipse Width="44" Height="44" Stroke="{StaticResource NotchSliderTrackBrush}" StrokeThickness="5" />
+                                    <Ellipse Width="44" Height="44" StrokeThickness="5"
+                                             Stroke="{DynamicResource NotchAccentBrush}"
+                                             StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                             StrokeDashArray="{Binding VitalsRingCircumference, Converter={StaticResource DoubleToDashArray}}"
+                                             StrokeDashOffset="{Binding GpuDashOffset}"
+                                             RenderTransformOrigin="0.5,0.5">
+                                        <Ellipse.RenderTransform>
+                                            <RotateTransform Angle="-90" />
+                                        </Ellipse.RenderTransform>
+                                    </Ellipse>
+                                    <TextBlock Text="{Binding GpuPercent, StringFormat={}{0:0}%}" FontSize="10" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                </Grid>
+                                <TextBlock Text="GPU" FontSize="10" Margin="0,4,0,0" HorizontalAlignment="Center"
+                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                            </StackPanel>
                         </Grid>
 
+                        <!-- Mirrors the ring row's own rhythm rather than sitting apart from
+                             it: same 4-column grid (Download centered under the CPU+Memory
+                             pair, Upload under Disk+GPU), and the same "circular badge on
+                             top, value below" shape as each ring tile — just a plain icon
+                             badge instead of a live arc, since a KB/s rate has no natural
+                             0-100% max to draw a ring against. 28px badge matches the size
+                             already established elsewhere (the AI tab's Claude avatar, shelf
+                             chip icons) rather than introducing a new one-off size. -->
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0">
-                                <TextBlock Text="Download" FontSize="10" Foreground="{StaticResource NotchTextSecondaryBrush}" />
-                                <TextBlock Text="{Binding NetworkDownKBs, StringFormat={}{0:0.0} KB/s}" FontSize="13" FontWeight="SemiBold"
+
+                            <StackPanel Grid.Column="0" Grid.ColumnSpan="2" HorizontalAlignment="Center">
+                                <Grid Width="28" Height="28">
+                                    <Ellipse Width="28" Height="28" Fill="{StaticResource NotchSliderTrackBrush}" />
+                                    <TextBlock Text="&#xE896;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
+                                               Foreground="{DynamicResource NotchAccentBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Grid>
+                                <TextBlock Text="{Binding NetworkDownKBs, StringFormat={}{0:0.0} KB/s}" FontSize="11" FontWeight="SemiBold"
+                                           Margin="0,3,0,0" HorizontalAlignment="Center"
                                            Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                <TextBlock Text="Download" FontSize="10" HorizontalAlignment="Center"
+                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
                             </StackPanel>
-                            <StackPanel Grid.Column="1">
-                                <TextBlock Text="Upload" FontSize="10" Foreground="{StaticResource NotchTextSecondaryBrush}" />
-                                <TextBlock Text="{Binding NetworkUpKBs, StringFormat={}{0:0.0} KB/s}" FontSize="13" FontWeight="SemiBold"
+
+                            <StackPanel Grid.Column="2" Grid.ColumnSpan="2" HorizontalAlignment="Center">
+                                <Grid Width="28" Height="28">
+                                    <Ellipse Width="28" Height="28" Fill="{StaticResource NotchSliderTrackBrush}" />
+                                    <TextBlock Text="&#xE898;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
+                                               Foreground="{DynamicResource NotchAccentBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Grid>
+                                <TextBlock Text="{Binding NetworkUpKBs, StringFormat={}{0:0.0} KB/s}" FontSize="11" FontWeight="SemiBold"
+                                           Margin="0,3,0,0" HorizontalAlignment="Center"
                                            Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                                <TextBlock Text="Upload" FontSize="10" HorizontalAlignment="Center"
+                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
                             </StackPanel>
                         </Grid>
                     </StackPanel>
@@ -665,12 +810,22 @@
                                                 MouseMove="ShelfChip_MouseMove">
                                             <Grid>
                                                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                                    <Image Source="{Binding Icon}" Width="28" Height="28" HorizontalAlignment="Center" />
-                                                    <TextBlock Text="{Binding DisplayName}" FontSize="9.5" Margin="4,4,4,0" MaxWidth="64"
+                                                    <!-- Pulsing placeholder glyph while the icon/thumbnail lookup is
+                                                         still running (see ShelfItem.IsIconLoading) — swapped for the
+                                                         real Image once it resolves, whatever it finds. -->
+                                                    <TextBlock Text="&#xE8A5;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="20"
+                                                               Width="28" Height="28" HorizontalAlignment="Center"
+                                                               TextAlignment="Center"
+                                                               Foreground="{StaticResource NotchTextSecondaryBrush}"
+                                                               Style="{StaticResource PulsingOpacityStyle}"
+                                                               Visibility="{Binding IsIconLoading, Converter={StaticResource BoolToVis}}" />
+                                                    <Image Source="{Binding Icon}" Width="28" Height="28" HorizontalAlignment="Center"
+                                                           Visibility="{Binding IsIconLoading, Converter={StaticResource InverseBoolToVis}}" />
+                                                    <TextBlock Text="{Binding DisplayName}" FontSize="10" Margin="4,4,4,0" MaxWidth="64"
                                                                TextAlignment="Center" TextTrimming="CharacterEllipsis"
                                                                Foreground="{StaticResource NotchTextPrimaryBrush}" />
                                                 </StackPanel>
-                                                <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
+                                                <TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
                                                            HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,3,3,0"
                                                            Foreground="{StaticResource NotchTextSecondaryBrush}"
                                                            MouseLeftButtonUp="RemoveShelfItem_MouseLeftButtonUp" />

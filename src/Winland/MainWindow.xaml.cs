@@ -284,8 +284,28 @@ public partial class MainWindow : Window
             return;
         }
 
-        AnimateShellDimension(WidthProperty, Shell.ActualWidth, width);
-        AnimateShellDimension(HeightProperty, Shell.ActualHeight, height);
+        // Tab switches go through this same path (SelectedTab affects
+        // NotchHeight), but most tab pairs share an identical footprint —
+        // e.g. Media/Vitals/Shelf are all 400x230; only the AI tab differs,
+        // at 400x280. Bail out entirely when neither dimension is actually
+        // moving, rather than kicking off a same-value animation for no
+        // visual change.
+        var widthChanging = Math.Abs(Shell.ActualWidth - width) > 0.5;
+        var heightChanging = Math.Abs(Shell.ActualHeight - height) > 0.5;
+        if (!widthChanging && !heightChanging)
+        {
+            return;
+        }
+
+        if (widthChanging)
+        {
+            AnimateShellDimension(WidthProperty, Shell.ActualWidth, width);
+        }
+
+        if (heightChanging)
+        {
+            AnimateShellDimension(HeightProperty, Shell.ActualHeight, height);
+        }
     }
 
     private void AnimateShellDimension(DependencyProperty property, double currentValue, double targetValue)
@@ -535,7 +555,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        DragDrop.DoDragDrop(element, new DataObject(DataFormats.FileDrop, new[] { item.Path }), DragDropEffects.Copy | DragDropEffects.Move);
+        // DoDragDrop blocks until the drag actually finishes (dropped
+        // somewhere, or cancelled) and returns what happened — previously
+        // that result was just discarded, so the only thing that ever
+        // caught a chip whose file got moved out this way was the 30-second
+        // ghost-prune poll (see PruneMissingShelfItems), reading as a long,
+        // inconsistent delay before the chip disappeared. Removing it the
+        // instant the drop is actually accepted (Copy or Move — either way
+        // the user just took it off the shelf) makes that immediate instead.
+        var result = DragDrop.DoDragDrop(element, new DataObject(DataFormats.FileDrop, new[] { item.Path }), DragDropEffects.Copy | DragDropEffects.Move);
+        if (result != DragDropEffects.None)
+        {
+            _viewModel.RemoveShelfItemCommand.Execute(item);
+        }
     }
 
     // ---- Shelf drag-in (files dropped onto the notch from Explorer/desktop) ----
