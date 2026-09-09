@@ -19,8 +19,8 @@ namespace Winland.Services;
 ///
 /// There's no managed change-notification API for a registry *subtree*
 /// scan like this, so this polls on a timer rather than subscribing to an
-/// event — the same tradeoff BatteryService/AccentColorService make
-/// wherever no real push signal exists.
+/// event — the same tradeoff AccentColorService makes wherever no real
+/// push signal exists.
 /// </summary>
 public sealed class PrivacyIndicatorService : IPrivacyIndicatorService, IDisposable
 {

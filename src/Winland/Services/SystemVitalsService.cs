@@ -10,8 +10,8 @@ namespace Winland.Services;
 
 /// <summary>
 /// Samples CPU/RAM/disk/GPU/network once a second for the Vitals tab. Unlike
-/// the OS-signal services elsewhere in this app (battery, media, accent),
-/// none of these have a push/event API — they're all read-on-demand
+/// the OS-signal services elsewhere in this app (media, accent), none of
+/// these have a push/event API — they're all read-on-demand
 /// counters — so this owns its own timer and raises one <see cref="Changed"/>
 /// per tick, the same poll-and-diff shape <see cref="PrivacyIndicatorService"/>
 /// uses for the same reason.

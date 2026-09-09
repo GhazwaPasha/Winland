@@ -4,7 +4,7 @@
     <OutputType>WinExe</OutputType>
     <!-- The windows-versioned TFM is what gives a plain WPF app access to
          the WinRT projections we need (System Media Transport Controls,
-         Battery, NetworkInformation) without any WinUI/packaging at all. -->
+         NetworkInformation) without any WinUI/packaging at all. -->
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <Nullable>enable</Nullable>
@@ -24,6 +24,9 @@
 
   <ItemGroup>
     <Content Include="Assets\AppIcon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Logo.svg">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

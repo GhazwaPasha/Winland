@@ -16,7 +16,6 @@
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
         <conv:DoubleToDashArrayConverter x:Key="DoubleToDashArray" />
-        <conv:BatteryGlyphConverter x:Key="BatteryGlyph" />
 
         <!-- Shared by the cam/mic status dots (collapsed + expanded, 4 total) — a
              slow breathing fade rather than a static dot, so an active indicator
@@ -116,10 +115,9 @@
                 <!-- Identity block: the clock always anchors the left edge, in both
                      the collapsed pill and the expanded header below. The status
                      block that follows keeps the exact same element order in both
-                     states too (cam/mic -> headphone -> pin -> battery), so
-                     expanding reads as one object reshaping instead of elements
-                     swapping sides. -->
-                <TextBlock Text="{Binding TimeText}" FontSize="11" FontWeight="SemiBold"
+                     states too (cam/mic -> headphone -> pin), so expanding reads
+                     as one object reshaping instead of elements swapping sides. -->
+                <TextBlock Text="{Binding TimeText}" FontSize="13" FontWeight="SemiBold"
                            Foreground="{StaticResource NotchTextPrimaryBrush}"
                            VerticalAlignment="Center" Margin="0,0,10,0" />
 
@@ -163,10 +161,6 @@
                                Foreground="{DynamicResource NotchAccentBrush}"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Grid>
-
-                <TextBlock Text="{Binding BatteryPercent, Converter={StaticResource BatteryGlyph}}"
-                           FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
-                           Foreground="{StaticResource NotchTextPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,10,0" />
             </StackPanel>
 
             <!-- ==================== Collapsed "now playing" pill ====================
@@ -230,7 +224,7 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Bottom">
-                        <TextBlock Text="{Binding TimeText}" FontSize="20" FontWeight="SemiBold"
+                        <TextBlock Text="{Binding TimeText}" FontSize="24" FontWeight="SemiBold"
                                    Foreground="{StaticResource NotchTextPrimaryBrush}" />
                         <TextBlock Text="{Binding DateText}" FontSize="12" Margin="8,0,0,3"
                                    Foreground="{StaticResource NotchTextSecondaryBrush}" />
@@ -254,9 +248,6 @@
                             <Path Data="{StaticResource SurfaceEarbudsGeometry}" Stretch="Uniform" Width="14" Height="14"
                                   Fill="{StaticResource NotchTextSecondaryBrush}"
                                   Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource BoolToVis}}" />
-                            <!-- Deliberately smaller than the PC battery % at the end of this
-                                 row — two same-size "N%" readouts in one row read as one
-                                 number duplicated before you've parsed which device is which. -->
                             <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="10" Margin="3,0,0,0"
                                        Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center" Opacity="0.85"
                                        Visibility="{Binding HasHeadphoneBattery, Converter={StaticResource BoolToVis}}" />
@@ -287,14 +278,6 @@
                                 </TextBlock.Style>
                             </TextBlock>
                         </Grid>
-
-                        <!-- Same size (16) as the collapsed pill's battery glyph — see
-                             the pin chip note above; same reasoning applies here. -->
-                        <TextBlock Text="{Binding BatteryPercent, Converter={StaticResource BatteryGlyph}}"
-                                   FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
-                                   Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,4,0" />
-                        <TextBlock Text="{Binding BatteryPercent, StringFormat={}{0}%}" FontSize="12"
-                                   Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center" />
                     </StackPanel>
                 </Grid>
 
@@ -434,7 +417,13 @@
                 <Grid Grid.Row="2" Margin="0,14,0,0">
 
                     <!-- Media tab -->
-                    <StackPanel Orientation="Horizontal"
+                    <!-- VerticalAlignment="Center" rather than the Grid row's default
+                         top-align: this tab's content (64px thumbnail + a few text
+                         lines) is far shorter than the shared content row's height (see
+                         NotchHeight's doc comment for why every tab shares one height),
+                         so top-aligning it left a large dead gap below; centering
+                         balances that leftover space above and below instead. -->
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
                                 Visibility="{Binding IsMediaTabSelected, Converter={StaticResource BoolToVis}}">
                         <Grid Width="64" Height="64" Margin="0,0,12,0">
                             <Border CornerRadius="8" Background="{StaticResource NotchTileBrush}" />
@@ -469,7 +458,7 @@
                             <!-- Dimmed and click-through while nothing is loaded, so the
                                  transport row reads as idle rather than as active controls
                                  that just happen to do nothing when pressed. -->
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <StackPanel.Style>
                                     <Style TargetType="StackPanel">
                                         <Setter Property="Opacity" Value="1" />
@@ -516,7 +505,10 @@
                     </StackPanel>
 
                     <!-- AI tab -->
-                    <StackPanel Visibility="{Binding IsAiTabSelected, Converter={StaticResource BoolToVis}}">
+                    <!-- Centered for the same reason as the Media tab above — this
+                         content is shorter than the shared content row. -->
+                    <StackPanel VerticalAlignment="Center"
+                                Visibility="{Binding IsAiTabSelected, Converter={StaticResource BoolToVis}}">
                         <Grid Margin="0,0,0,14">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -527,22 +519,29 @@
                             <!-- Circular, matching the ring/dot vocabulary the rest of
                                  this tab already uses (the usage rings, the pulsing
                                  status dot below) — a rounded-square badge was the one
-                                 shape in the tab that didn't belong to that family. -->
+                                 shape in the tab that didn't belong to that family. The
+                                 real Claude mark (ClaudeMarkGeometry, see App.xaml) drawn
+                                 white on top, replacing what used to be a plain "C". -->
                             <Ellipse Grid.Column="0" Width="28" Height="28" Fill="{StaticResource NotchClaudeBrush}" />
-                            <TextBlock Grid.Column="0" Text="C" Foreground="White" FontSize="12" FontWeight="Bold"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+                            <Path Grid.Column="0" Data="{StaticResource ClaudeMarkGeometry}" Stretch="Uniform"
+                                  Width="15" Height="15" Fill="White"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
 
                             <TextBlock Grid.Column="1" Text="Claude" FontSize="13" FontWeight="SemiBold"
                                        Margin="10,0,0,0" VerticalAlignment="Center"
                                        Foreground="{StaticResource NotchTextPrimaryBrush}" />
 
+                            <!-- Reflects real Claude Code activity now (see
+                                 ClaudeCodeActivityService) instead of an always-true
+                                 "Working…" that never meant anything — the dot pulses
+                                 exactly when at least one session is actually open. -->
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                 <Ellipse x:Name="StatusDot" Width="6" Height="6" Margin="0,0,5,0"
                                          Fill="{DynamicResource NotchAccentBrush}">
                                     <Ellipse.Style>
                                         <Style TargetType="Ellipse">
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsClaudeWorking}" Value="True">
+                                                <DataTrigger Binding="{Binding HasActiveClaudeSessions}" Value="True">
                                                     <DataTrigger.EnterActions>
                                                         <BeginStoryboard x:Name="PulseBeginStoryboard">
                                                             <Storyboard>
@@ -560,87 +559,164 @@
                                         </Style>
                                     </Ellipse.Style>
                                 </Ellipse>
-                                <TextBlock FontSize="10" Foreground="{StaticResource NotchTextSecondaryBrush}">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Text" Value="Idle" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsClaudeWorking}" Value="True">
-                                                    <Setter Property="Text" Value="Working…" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+                                <TextBlock Text="{Binding SessionStatusText}" FontSize="10"
+                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
                             </StackPanel>
                         </Grid>
 
-                        <!-- Centered as a unit, unlike before — a horizontal StackPanel
-                             doesn't fill its parent's width just because nothing stopped
-                             it from stretching, so this used to hug the left edge with a
-                             large dead gap on the right. Now that Vitals centers its own
-                             ring row edge-to-edge, an AI tab that didn't match read as
-                             visibly lopsided immediately after it. -->
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <Grid Width="100" Height="100" Margin="0,0,16,0">
-                                <Ellipse Width="80" Height="80" Stroke="{StaticResource NotchSliderTrackBrush}" StrokeThickness="7" />
-                                <Ellipse Width="54" Height="54" Stroke="{StaticResource NotchSliderTrackBrush}" StrokeThickness="7" />
+                        <!-- Active Claude Code sessions — replaces the old Weekly/5-hour
+                             usage rings entirely. Those depended on an unofficial Claude
+                             Desktop cache file that repeatedly failed to read for reasons
+                             that were never fully pinned down; this is backed by
+                             ClaudeCodeActivityService instead, a plain process registry
+                             (~/.claude/sessions/*.json cross-checked against actually-
+                             running PIDs) with no inferred file-format guessing involved.
+                             Flat rows — "Project - Session", project bold — rather than a
+                             group header with an indented list underneath: every row names
+                             its own project, so several projects' sessions sit in the same
+                             list with nothing extra wrapping them. -->
 
-                                <Ellipse Width="80" Height="80" StrokeThickness="7"
-                                         Stroke="{Binding WeeklyRingBrush}"
-                                         StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                         StrokeDashArray="{Binding OuterCircumference, Converter={StaticResource DoubleToDashArray}}"
-                                         StrokeDashOffset="{Binding OuterDashOffset}"
-                                         RenderTransformOrigin="0.5,0.5">
-                                    <Ellipse.RenderTransform>
-                                        <RotateTransform Angle="-90" />
-                                    </Ellipse.RenderTransform>
-                                </Ellipse>
+                        <!-- Empty state — mirrors the Media tab's "Nothing playing" and the
+                             Shelf tab's "Drag files onto the notch" rather than leaving a
+                             blank area with no explanation. -->
+                        <TextBlock Text="No active sessions" FontSize="11" HorizontalAlignment="Center"
+                                   Foreground="{StaticResource NotchTextSecondaryBrush}"
+                                   Visibility="{Binding HasActiveClaudeSessions, Converter={StaticResource InverseBoolToVis}}" />
 
-                                <Ellipse Width="54" Height="54" StrokeThickness="7"
-                                         Stroke="{Binding FiveHourRingBrush}"
-                                         StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                         StrokeDashArray="{Binding InnerCircumference, Converter={StaticResource DoubleToDashArray}}"
-                                         StrokeDashOffset="{Binding InnerDashOffset}"
-                                         RenderTransformOrigin="0.5,0.5">
-                                    <Ellipse.RenderTransform>
-                                        <RotateTransform Angle="-90" />
-                                    </Ellipse.RenderTransform>
-                                </Ellipse>
+                        <!-- No explicit MaxHeight, same reasoning as the Shelf tab's
+                             ScrollViewer above: MainWindow's MeasureAiTabHeight already
+                             grows the notch to fit the real content height (up to
+                             NotchViewModel.MaxAiTabHeight), so this only actually starts
+                             scrolling once that ceiling is hit — a plain ScrollViewer
+                             scrolls the moment it's arranged with less room than its
+                             content wants, no MaxHeight required to make that happen. -->
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      Visibility="{Binding HasActiveClaudeSessions, Converter={StaticResource BoolToVis}}">
+                            <ItemsControl ItemsSource="{Binding SessionRows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <!-- A real 4-column grid rather than a text+badge StackPanel
+                                             stuffed into one "*" column — the label can run long
+                                             enough (a real conversation title, see
+                                             ClaudeCodeActivityService's custom-title lookup) to need
+                                             TextTrimming, and a StackPanel doesn't clip its children
+                                             just because its own box is constrained, so a long label
+                                             would have pushed the badge/duration off rather than
+                                             eliding itself. -->
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
 
-                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding WeeklyPercent, StringFormat={}{0}%}" FontSize="15" FontWeight="Bold"
-                                               HorizontalAlignment="Center" Foreground="{StaticResource NotchTextPrimaryBrush}" />
-                                    <TextBlock Text="this week" FontSize="10" HorizontalAlignment="Center"
-                                               Foreground="{StaticResource NotchTextSecondaryBrush}" />
-                                </StackPanel>
-                            </Grid>
+                                            <!-- Doubles as the row's marker. Idle is a hollow ring —
+                                                 outline only, no fill — and Active is the solid,
+                                                 accent-colored, breathing-fade dot the cam/mic/
+                                                 Claude-header dots already use elsewhere in this
+                                                 app, just re-keyed to this row's own IsActive:
+                                                 solid+pulsing reads as "something live is happening"
+                                                 here exactly like it does there, and hollow reads as
+                                                 "present but quiet" rather than just a dimmer copy of
+                                                 the same solid dot. -->
+                                            <Ellipse Grid.Column="0" Width="5" Height="5" Margin="0,0,7,0" VerticalAlignment="Center">
+                                                <Ellipse.Style>
+                                                    <Style TargetType="Ellipse">
+                                                        <Setter Property="Fill" Value="Transparent" />
+                                                        <Setter Property="Stroke" Value="{StaticResource NotchTextSecondaryBrush}" />
+                                                        <Setter Property="StrokeThickness" Value="1" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                                <Setter Property="Fill" Value="{DynamicResource NotchAccentBrush}" />
+                                                                <Setter Property="StrokeThickness" Value="0" />
+                                                                <DataTrigger.EnterActions>
+                                                                    <BeginStoryboard x:Name="SessionActivePulse">
+                                                                        <Storyboard>
+                                                                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                                             From="1" To="0.5" Duration="0:0:1.4"
+                                                                                             AutoReverse="True" RepeatBehavior="Forever" />
+                                                                        </Storyboard>
+                                                                    </BeginStoryboard>
+                                                                </DataTrigger.EnterActions>
+                                                                <DataTrigger.ExitActions>
+                                                                    <StopStoryboard BeginStoryboardName="SessionActivePulse" />
+                                                                </DataTrigger.ExitActions>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Ellipse.Style>
+                                            </Ellipse>
 
-                            <StackPanel VerticalAlignment="Center">
-                                <StackPanel Margin="0,0,0,10">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Ellipse Width="8" Height="8" Margin="0,0,6,0" Fill="{Binding WeeklyRingBrush}" />
-                                        <TextBlock Text="{Binding WeeklyPercent, StringFormat={}Weekly limit – {0}%}" FontSize="11"
-                                                   Foreground="{StaticResource NotchTextPrimaryBrush}" />
-                                    </StackPanel>
-                                    <TextBlock Text="{Binding WeeklyResetText}" FontSize="10" Margin="14,2,0,0"
-                                               Foreground="{StaticResource NotchTextSecondaryBrush}" />
-                                </StackPanel>
-                                <StackPanel>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Ellipse Width="8" Height="8" Margin="0,0,6,0" Fill="{Binding FiveHourRingBrush}" />
-                                        <TextBlock Text="{Binding FiveHourPercent, StringFormat={}5-hour limit – {0}%}" FontSize="11"
-                                                   Foreground="{StaticResource NotchTextPrimaryBrush}" />
-                                    </StackPanel>
-                                    <TextBlock Text="{Binding FiveHourResetText}" FontSize="10" Margin="14,2,0,0"
-                                               Foreground="{StaticResource NotchTextSecondaryBrush}" />
-                                </StackPanel>
-                            </StackPanel>
-                        </StackPanel>
+                                            <!-- "Project - Session", project bold — Run.Text binds
+                                                 fine in WPF (added in .NET 4.5+), so this stays one
+                                                 TextBlock (one TextTrimming target) rather than two
+                                                 separate elements that would need their own layout. -->
+                                            <TextBlock Grid.Column="1" FontSize="11" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{StaticResource NotchTextPrimaryBrush}">
+                                                <Run Text="{Binding ProjectName, Mode=OneWay}" FontWeight="Bold" />
+                                                <Run Text=" - " />
+                                                <Run Text="{Binding SessionLabel, Mode=OneWay}" />
+                                            </TextBlock>
+
+                                            <!-- Only shown for a non-"interactive" kind (e.g. a
+                                                 background task) — no badge at all is the common
+                                                 case, so this only draws attention to the session
+                                                 that's actually unusual. -->
+                                            <Border Grid.Column="2" Margin="6,0,0,0" Padding="4,1" CornerRadius="4"
+                                                    Background="{StaticResource NotchTabBarBackgroundBrush}"
+                                                    Visibility="{Binding HasKindBadge, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock Text="{Binding KindBadge}" FontSize="9"
+                                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                                            </Border>
+
+                                            <TextBlock Grid.Column="3" Margin="8,0,0,0" Text="{Binding DurationText}" FontSize="10"
+                                                       Foreground="{StaticResource NotchTextSecondaryBrush}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
                     </StackPanel>
 
                     <!-- Vitals tab -->
-                    <StackPanel Visibility="{Binding IsVitalsTabSelected, Converter={StaticResource BoolToVis}}">
+                    <!-- Centered for the same reason as the Media tab above — this
+                         content is shorter than the shared content row. -->
+                    <StackPanel VerticalAlignment="Center"
+                                Visibility="{Binding IsVitalsTabSelected, Converter={StaticResource BoolToVis}}">
+                        <!-- Sits above the rings row (rather than below it), Download then
+                             Upload side by side as one compact centered row rather than
+                             spread across the tab's full width. The icon badge and its
+                             KB/s value sit side by side in one row. 22px badge is slightly
+                             smaller than the 28px used elsewhere (AI tab avatar, shelf chip
+                             icons) to leave room for the value beside it without widening
+                             the row. -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,14">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,16,0">
+                                <Grid Width="22" Height="22">
+                                    <Ellipse Width="22" Height="22" Fill="{StaticResource NotchSliderTrackBrush}" />
+                                    <TextBlock Text="&#xE896;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
+                                               Foreground="White"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Grid>
+                                <TextBlock Text="{Binding NetworkDownKBs, StringFormat={}{0:0.0} KB/s}" FontSize="11" FontWeight="SemiBold"
+                                           Margin="6,0,0,0" VerticalAlignment="Center"
+                                           Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Grid Width="22" Height="22">
+                                    <Ellipse Width="22" Height="22" Fill="{StaticResource NotchSliderTrackBrush}" />
+                                    <TextBlock Text="&#xE898;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10"
+                                               Foreground="White"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Grid>
+                                <TextBlock Text="{Binding NetworkUpKBs, StringFormat={}{0:0.0} KB/s}" FontSize="11" FontWeight="SemiBold"
+                                           Margin="6,0,0,0" VerticalAlignment="Center"
+                                           Foreground="{StaticResource NotchTextPrimaryBrush}" />
+                            </StackPanel>
+                        </StackPanel>
+
                         <!-- Four equal-size live rings (CPU/Memory/Disk/GPU) instead of the
                              stacked bars this used to be — one bar row per metric didn't
                              scale cleanly to a fourth metric, and rings read as "live gauges"
@@ -649,7 +725,7 @@
                              the one tab still using flat bars. All four share one ring size
                              (VitalsRingRadius/VitalsRingCircumference in the view model) —
                              only each ring's DashOffset differs per metric. -->
-                        <Grid Margin="0,0,0,14">
+                        <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
@@ -741,51 +817,6 @@
                                            Foreground="{StaticResource NotchTextSecondaryBrush}" />
                             </StackPanel>
                         </Grid>
-
-                        <!-- Mirrors the ring row's own rhythm rather than sitting apart from
-                             it: same 4-column grid (Download centered under the CPU+Memory
-                             pair, Upload under Disk+GPU), and the same "circular badge on
-                             top, value below" shape as each ring tile — just a plain icon
-                             badge instead of a live arc, since a KB/s rate has no natural
-                             0-100% max to draw a ring against. 28px badge matches the size
-                             already established elsewhere (the AI tab's Claude avatar, shelf
-                             chip icons) rather than introducing a new one-off size. -->
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-
-                            <StackPanel Grid.Column="0" Grid.ColumnSpan="2" HorizontalAlignment="Center">
-                                <Grid Width="28" Height="28">
-                                    <Ellipse Width="28" Height="28" Fill="{StaticResource NotchSliderTrackBrush}" />
-                                    <TextBlock Text="&#xE896;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
-                                               Foreground="{DynamicResource NotchAccentBrush}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                </Grid>
-                                <TextBlock Text="{Binding NetworkDownKBs, StringFormat={}{0:0.0} KB/s}" FontSize="11" FontWeight="SemiBold"
-                                           Margin="0,3,0,0" HorizontalAlignment="Center"
-                                           Foreground="{StaticResource NotchTextPrimaryBrush}" />
-                                <TextBlock Text="Download" FontSize="10" HorizontalAlignment="Center"
-                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
-                            </StackPanel>
-
-                            <StackPanel Grid.Column="2" Grid.ColumnSpan="2" HorizontalAlignment="Center">
-                                <Grid Width="28" Height="28">
-                                    <Ellipse Width="28" Height="28" Fill="{StaticResource NotchSliderTrackBrush}" />
-                                    <TextBlock Text="&#xE898;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
-                                               Foreground="{DynamicResource NotchAccentBrush}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                </Grid>
-                                <TextBlock Text="{Binding NetworkUpKBs, StringFormat={}{0:0.0} KB/s}" FontSize="11" FontWeight="SemiBold"
-                                           Margin="0,3,0,0" HorizontalAlignment="Center"
-                                           Foreground="{StaticResource NotchTextPrimaryBrush}" />
-                                <TextBlock Text="Upload" FontSize="10" HorizontalAlignment="Center"
-                                           Foreground="{StaticResource NotchTextSecondaryBrush}" />
-                            </StackPanel>
-                        </Grid>
                     </StackPanel>
 
                     <!-- Shelf tab -->
@@ -794,7 +825,14 @@
                                    Foreground="{StaticResource NotchTextSecondaryBrush}"
                                    Visibility="{Binding IsShelfEmpty, Converter={StaticResource BoolToVis}}" />
 
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="150"
+                        <!-- No explicit MaxHeight: this already sits in the tab content
+                             Grid's "*" row, so it naturally stretches to whatever space
+                             is actually left after the header/tab bar above it — a fixed
+                             MaxHeight guess here could drift out of sync with that and
+                             either clip early or overrun it. VerticalScrollBarVisibility
+                             keeps handling the case where the shelf has more items than
+                             fit. -->
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
                                       Visibility="{Binding IsShelfEmpty, Converter={StaticResource InverseBoolToVis}}">
                             <ItemsControl ItemsSource="{Binding ShelfItems}">
                                 <ItemsControl.ItemsPanel>

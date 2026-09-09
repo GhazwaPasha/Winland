@@ -32,13 +32,12 @@ public partial class App : Application
         base.OnStartup(e);
 
         var mediaService = new MediaService();
-        var batteryService = new BatteryService();
         var privacyIndicatorService = new PrivacyIndicatorService();
         var systemVitalsService = new SystemVitalsService();
         var headphoneService = new HeadphoneService();
         var shelfStorageService = new ShelfStorageService();
         var appSettingsService = new AppSettingsService();
-        var claudeUsageProvider = new MockClaudeUsageProvider();
+        var claudeCodeActivityService = new ClaudeCodeActivityService();
         var accentColorService = new AccentColorService();
         _accentColorService = accentColorService;
 
@@ -46,8 +45,8 @@ public partial class App : Application
         ApplyAccentColors();
 
         var viewModel = new NotchViewModel(
-            mediaService, batteryService, privacyIndicatorService, systemVitalsService, headphoneService, shelfStorageService,
-            appSettingsService, claudeUsageProvider, accentColorService);
+            mediaService, privacyIndicatorService, systemVitalsService, headphoneService, shelfStorageService,
+            appSettingsService, claudeCodeActivityService);
 
         _window = new MainWindow(viewModel);
         _window.Show();

@@ -3,7 +3,6 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -21,42 +20,33 @@ namespace Winland.ViewModels;
 /// </summary>
 public partial class NotchViewModel : ObservableObject
 {
-    private static readonly Color ClaudeColor = Color.FromArgb(255, 0xD9, 0x77, 0x57);
-    private static readonly Color WarningColor = Color.FromArgb(255, 0xE8, 0xA3, 0x3E);
-
     private readonly Dispatcher _dispatcher;
     private readonly IMediaService _mediaService;
-    private readonly IBatteryService _batteryService;
     private readonly IPrivacyIndicatorService _privacyIndicatorService;
     private readonly ISystemVitalsService _systemVitalsService;
     private readonly IHeadphoneService _headphoneService;
     private readonly IShelfStorageService _shelfStorageService;
     private readonly IAppSettingsService _appSettingsService;
-    private readonly IClaudeUsageProvider _claudeUsageProvider;
-    private readonly IAccentColorService _accentColorService;
+    private readonly IClaudeCodeActivityService _claudeCodeActivityService;
     private readonly DispatcherTimer _clockTimer;
 
     public NotchViewModel(
         IMediaService mediaService,
-        IBatteryService batteryService,
         IPrivacyIndicatorService privacyIndicatorService,
         ISystemVitalsService systemVitalsService,
         IHeadphoneService headphoneService,
         IShelfStorageService shelfStorageService,
         IAppSettingsService appSettingsService,
-        IClaudeUsageProvider claudeUsageProvider,
-        IAccentColorService accentColorService)
+        IClaudeCodeActivityService claudeCodeActivityService)
     {
         _dispatcher = Dispatcher.CurrentDispatcher;
         _mediaService = mediaService;
-        _batteryService = batteryService;
         _privacyIndicatorService = privacyIndicatorService;
         _systemVitalsService = systemVitalsService;
         _headphoneService = headphoneService;
         _shelfStorageService = shelfStorageService;
         _appSettingsService = appSettingsService;
-        _claudeUsageProvider = claudeUsageProvider;
-        _accentColorService = accentColorService;
+        _claudeCodeActivityService = claudeCodeActivityService;
 
         // Restore last session's pin state before anything else runs — this
         // assignment does trigger OnIsPinnedChanged below and re-save the
@@ -64,27 +54,24 @@ public partial class NotchViewModel : ObservableObject
         IsPinned = _appSettingsService.Load().IsPinned;
 
         _mediaService.MediaChanged += (_, _) => RunOnUi(RefreshMedia);
-        _batteryService.BatteryChanged += (_, _) => RunOnUi(RefreshBattery);
         _privacyIndicatorService.Changed += (_, _) => RunOnUi(RefreshPrivacyIndicators);
         _systemVitalsService.Changed += (_, _) => RunOnUi(RefreshVitals);
         _headphoneService.Changed += (_, _) => RunOnUi(RefreshHeadphone);
-        _accentColorService.Changed += (_, _) => RunOnUi(RefreshAccentColor);
         ShelfItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(IsShelfEmpty));
 
         RefreshClock();
         RefreshMedia();
-        RefreshBattery();
         RefreshPrivacyIndicators();
         RefreshVitals();
         RefreshHeadphone();
-        RefreshClaudeUsage();
+        RefreshClaudeActivity();
         LoadShelf();
 
         _clockTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _clockTimer.Tick += (_, _) =>
         {
             RefreshClock();
-            RefreshClaudeUsage();
+            RefreshClaudeActivity();
             PruneMissingShelfItems();
         };
         _clockTimer.Start();
@@ -136,9 +123,6 @@ public partial class NotchViewModel : ObservableObject
     private string dateText = string.Empty;
 
     [ObservableProperty]
-    private int batteryPercent = 100;
-
-    [ObservableProperty]
     private bool isMicInUse;
 
     [ObservableProperty]
@@ -168,11 +152,9 @@ public partial class NotchViewModel : ObservableObject
     [ObservableProperty]
     private double networkUpKBs;
 
-    // The four Vitals rings are all the same size, unlike the AI tab's two
-    // differently-sized concentric rings — so one shared radius/circumference
-    // pair covers all of them, and each metric only needs its own DashOffset.
-    // See OuterCircumference/OuterDashOffset above for how the
-    // circumference-in-stroke-thickness-units trick works.
+    // The four Vitals rings are all the same size — one shared
+    // radius/circumference pair covers all of them, and each metric only
+    // needs its own DashOffset.
     public double VitalsRingRadius => 22;
     public double VitalsRingStrokeWidth => 5;
     public double VitalsRingCircumference => 2 * Math.PI * VitalsRingRadius / VitalsRingStrokeWidth;
@@ -206,31 +188,63 @@ public partial class NotchViewModel : ObservableObject
     public bool IsVitalsTabSelected => SelectedTab == "Vitals";
     public bool IsShelfTabSelected => SelectedTab == "Shelf";
 
-    // The largest footprint the notch ever takes (AI tab, expanded). The
-    // window itself is sized to exactly this, once, at startup, and never
-    // resized again — see MainWindow's class doc for why. Every smaller
-    // state just animates Shell within that fixed window.
-    public const double MaxNotchWidth = 400;
+    // The footprint every tab but AI shares. AI's own ceiling can run
+    // taller (see MaxAiTabHeight below, and MainWindow's MeasureAiTabHeight
+    // — the actual per-tab height math lives there now, not here, because
+    // it needs real WPF layout measurement rather than a guessed row-height
+    // constant; see that method's doc for why). The window itself is sized
+    // to MaxWindowHeight, once, at startup, and never resized again — see
+    // MainWindow's class doc for why. Every smaller state just animates
+    // Shell within that fixed window.
+    public const double MaxNotchWidth = 440;
     public const double MaxNotchHeight = 280;
 
-    public double NotchWidth => IsExpanded ? MaxNotchWidth : 220;
+    public double NotchWidth => IsExpanded ? MaxNotchWidth : 240;
 
-    public double NotchHeight => !IsExpanded
-        ? 34
-        : SelectedTab == "Ai" ? MaxNotchHeight : 230;
+    // How far past MaxNotchHeight the AI tab is allowed to grow for a long
+    // session list (see MainWindow's MeasureAiTabHeight) before its session
+    // list's own ScrollViewer takes back over — a safety net for a runaway
+    // session count, not a value real content is expected to reach.
+    public const double MaxAiTabHeight = 600;
+
+    /// <summary>
+    /// The tallest footprint any single tab can ever need when expanded —
+    /// currently AI's own ceiling. This is what the real OS window reserves
+    /// once at startup (see MainWindow's PositionWindowAtMaxSize); every
+    /// shorter tab just leaves the rest of that reserved room empty.
+    /// </summary>
+    public const double MaxWindowHeight = MaxAiTabHeight;
+
+    // Every non-AI expanded tab shares the same height, and it's
+    // MaxNotchHeight — the window is already permanently reserved tall
+    // enough for that (see MaxWindowHeight above), so there's no cost to
+    // Shell actually using all of it. A smaller shared constant (230) used
+    // to sit here instead, on the assumption every tab's content fit
+    // comfortably under it; the AI tab's two ring columns and the Vitals
+    // tab's rings + Download/Upload row actually run past that budget,
+    // hard-clipping their bottom edge against ShellContent's per-frame Clip
+    // geometry (see MainWindow's UpdateShellGeometry). Using the full
+    // reserved footprint removes that clipping and, as a side effect, means
+    // switching between two non-AI tabs never triggers a resize animation.
+    // AI itself is the one exception — MainWindow overrides this value with
+    // MeasureAiTabHeight's real measurement whenever AI is the selected,
+    // expanded tab, so this is only ever actually used as the AI tab's
+    // *fallback* (e.g. the very first frame, before a real measurement has
+    // run).
+    public double NotchHeight => !IsExpanded ? 34 : MaxNotchHeight;
 
     public double NotchCornerRadius => IsExpanded ? 20 : 18;
 
     /// <summary>
-    /// When true, the collapsed pill swaps its usual time/battery/wifi/pin
-    /// row for a "now playing" layout — thumbnail on one side, an animated
-    /// waveform on the other — mirroring how a Dynamic Island reacts to
-    /// active audio. Only while something is actually playing; a paused or
-    /// absent session falls back to the normal collapsed content.
+    /// When true, the collapsed pill swaps its usual time/wifi/pin row for a
+    /// "now playing" layout — thumbnail on one side, an animated waveform on
+    /// the other — mirroring how a Dynamic Island reacts to active audio.
+    /// Only while something is actually playing; a paused or absent session
+    /// falls back to the normal collapsed content.
     /// </summary>
     public bool ShowMediaInCollapsedPill => HasActiveMediaSession && IsMediaPlaying;
 
-    /// <summary>The normal collapsed row (wifi/battery/time/pin) — hidden while <see cref="ShowMediaInCollapsedPill"/> is true.</summary>
+    /// <summary>The normal collapsed row (wifi/time/pin) — hidden while <see cref="ShowMediaInCollapsedPill"/> is true.</summary>
     public bool IsCollapsedIconRowVisible => !IsExpanded && !ShowMediaInCollapsedPill;
 
     /// <summary>The "now playing" collapsed row (thumbnail + waveform).</summary>
@@ -262,43 +276,43 @@ public partial class NotchViewModel : ObservableObject
     [ObservableProperty]
     private BitmapImage? mediaThumbnail;
 
-    // ---- AI tab (mocked Claude usage) ----
+    // ---- AI tab (Claude Code activity) ----
 
+    /// <summary>
+    /// How many Claude Code sessions are currently running (see
+    /// ClaudeCodeActivityService) — this is what the status dot/text next
+    /// to the Claude avatar reflects. There's no reliable signal anywhere
+    /// for "is Claude actively generating a response right now" (an earlier
+    /// version faked that as an always-true IsWorking bool), so this reports
+    /// something real instead: whether Claude Code is open at all, and in
+    /// how many places.
+    /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(OuterDashOffset))]
-    [NotifyPropertyChangedFor(nameof(WeeklyRingBrush))]
-    private int weeklyPercent;
+    [NotifyPropertyChangedFor(nameof(HasActiveClaudeSessions))]
+    [NotifyPropertyChangedFor(nameof(SessionStatusText))]
+    private int activeClaudeSessionCount;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(InnerDashOffset))]
-    [NotifyPropertyChangedFor(nameof(FiveHourRingBrush))]
-    private int fiveHourPercent;
+    public bool HasActiveClaudeSessions => ActiveClaudeSessionCount > 0;
 
-    [ObservableProperty]
-    private string weeklyResetText = string.Empty;
+    public string SessionStatusText => ActiveClaudeSessionCount switch
+    {
+        0 => "Not running",
+        1 => "1 session",
+        _ => $"{ActiveClaudeSessionCount} sessions",
+    };
 
-    [ObservableProperty]
-    private string fiveHourResetText = string.Empty;
-
-    [ObservableProperty]
-    private bool isClaudeWorking;
-
-    public double OuterRadius => 40;
-    public double InnerRadius => 27;
-    public double RingStrokeWidth => 7;
-
-    // WPF's Shape.StrokeDashArray/StrokeDashOffset are expressed in
-    // multiples of StrokeThickness (unlike SVG's stroke-dasharray, which is
-    // in the same absolute units as the path) — dividing by RingStrokeWidth
-    // converts the circle's circumference into that unit so the same
-    // "one dash the length of the whole circle, offset to reveal pct%"
-    // trick the prototype uses in SVG reproduces identically here.
-    public double OuterCircumference => 2 * Math.PI * OuterRadius / RingStrokeWidth;
-    public double InnerCircumference => 2 * Math.PI * InnerRadius / RingStrokeWidth;
-    public double OuterDashOffset => OuterCircumference * (1 - WeeklyPercent / 100.0);
-    public double InnerDashOffset => InnerCircumference * (1 - FiveHourPercent / 100.0);
-    public Brush WeeklyRingBrush => new SolidColorBrush(WeeklyPercent >= 85 ? WarningColor : _accentColorService.Accent);
-    public Brush FiveHourRingBrush => new SolidColorBrush(FiveHourPercent >= 85 ? WarningColor : ClaudeColor);
+    /// <summary>
+    /// One flat row per active Claude Code session — "Project - Session",
+    /// project name bold in the XAML, sorted by project so same-project
+    /// rows still land next to each other even without a group header.
+    /// Replaces the old Weekly/5-hour usage rings entirely (see
+    /// RefreshClaudeActivity), rather than being patched in alongside them.
+    /// Rebuilt wholesale on every refresh (Clear + re-Add) since this is
+    /// read-only derived status, not something the UI can edit like
+    /// ShelfItems — no need for the preserve-identity dance that collection
+    /// needs.
+    /// </summary>
+    public ObservableCollection<ClaudeSessionRow> SessionRows { get; } = new();
 
     // ---- Commands ----
 
@@ -393,8 +407,6 @@ public partial class NotchViewModel : ObservableObject
         MediaThumbnail = _mediaService.Thumbnail;
     }
 
-    private void RefreshBattery() => BatteryPercent = _batteryService.CurrentPercent;
-
     private void RefreshPrivacyIndicators()
     {
         IsMicInUse = _privacyIndicatorService.IsMicInUse;
@@ -458,21 +470,52 @@ public partial class NotchViewModel : ObservableObject
         PersistShelf();
     }
 
-    // WeeklyRingBrush reads _accentColorService.Accent directly rather than
-    // through an [ObservableProperty], so a live accent change needs an
-    // explicit nudge — same trick NotifyPropertyChangedFor already uses for
-    // WeeklyPercent driving the same property.
-    private void RefreshAccentColor() => OnPropertyChanged(nameof(WeeklyRingBrush));
+    // A session whose transcript hasn't been touched in longer than this is
+    // "Idle" rather than "Active" — long enough that normal think/tool-call
+    // pauses between messages don't flicker a row idle mid-turn, short
+    // enough that closing the loop on a conversation reads as idle again
+    // within a couple of poll cycles.
+    private static readonly TimeSpan ActiveThreshold = TimeSpan.FromMinutes(2);
 
-    private void RefreshClaudeUsage()
+    /// <summary>
+    /// Rebuilds the AI tab's session count and rows from scratch every
+    /// call — cheap for a handful of sessions, and simpler than trying to
+    /// diff the list in place for read-only derived status. Sorted by
+    /// project then start time (oldest first) so same-project rows land
+    /// together and the list doesn't reorder itself as sessions come and
+    /// go. Each row's SessionLabel prefers the session's real title
+    /// (DisplayTitle — what Claude Desktop's own sidebar shows, e.g.
+    /// "Vitals tab icon styling") over the auto-derived short name,
+    /// falling back only when a title hasn't been generated yet.
+    /// IsActive is just LastActivityUtc thresholded — see
+    /// ClaudeCodeActivityService for what that's actually measuring.
+    /// </summary>
+    private void RefreshClaudeActivity()
     {
-        var snapshot = _claudeUsageProvider.GetSnapshot();
-        WeeklyPercent = snapshot.WeeklyPercent;
-        FiveHourPercent = snapshot.FiveHourPercent;
-        WeeklyResetText = snapshot.WeeklyResetText;
-        FiveHourResetText = snapshot.FiveHourResetText;
-        IsClaudeWorking = snapshot.IsWorking;
+        var sessions = _claudeCodeActivityService.GetSnapshot().Sessions;
+        ActiveClaudeSessionCount = sessions.Count;
+
+        var nowUtc = DateTime.UtcNow;
+        SessionRows.Clear();
+        foreach (var session in sessions
+                     .OrderBy(s => s.ProjectName, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(s => s.StartedAtUtc))
+        {
+            var sessionLabel = string.IsNullOrWhiteSpace(session.DisplayTitle) ? session.Name : session.DisplayTitle;
+            var isInteractive = string.Equals(session.Kind, "interactive", StringComparison.OrdinalIgnoreCase);
+            var isActive = nowUtc - session.LastActivityUtc < ActiveThreshold;
+            SessionRows.Add(new ClaudeSessionRow(
+                session.ProjectName,
+                sessionLabel,
+                FormatSessionDuration(nowUtc - session.StartedAtUtc),
+                isActive,
+                isInteractive ? null : session.Kind));
+        }
     }
+
+    private static string FormatSessionDuration(TimeSpan elapsed) => elapsed.TotalHours >= 1
+        ? $"{(int)elapsed.TotalHours}h {elapsed.Minutes}m"
+        : $"{Math.Max(1, (int)elapsed.TotalMinutes)}m"; // never show "0m" for a session that just started
 
     private void RunOnUi(Action action)
     {

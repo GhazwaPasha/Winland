@@ -7,7 +7,7 @@ namespace Winland.Converters;
 
 /// <summary>
 /// Turns a single circumference value (in stroke-thickness units — see
-/// NotchViewModel's OuterCircumference/InnerCircumference) into the
+/// NotchViewModel's AiRingCircumference/VitalsRingCircumference) into the
 /// [dash, gap] pair Shape.StrokeDashArray needs to draw "one dash exactly
 /// as long as the whole circle", which combined with StrokeDashOffset is
 /// what produces the percentage-arc ring gauge.

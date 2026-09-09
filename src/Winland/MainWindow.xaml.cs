@@ -17,9 +17,11 @@ namespace Winland;
 /// <summary>
 /// The always-on-top notch window. It is sized to its maximum possible
 /// footprint (<see cref="NotchViewModel.MaxNotchWidth"/> ×
-/// <see cref="NotchViewModel.MaxNotchHeight"/>) exactly once at startup and
+/// <see cref="NotchViewModel.MaxWindowHeight"/>) exactly once at startup and
 /// never natively resized or repositioned again — expand/collapse and tab
-/// switches are *purely* a Shell property Storyboard from then on.
+/// switches (including the AI tab growing taller for a long session list —
+/// see <see cref="MeasureAiTabHeight"/>) are *purely* a Shell property
+/// Storyboard from then on.
 ///
 /// An earlier version kept the OS window snapped to Shell's exact current
 /// size instead (so there was never an invisible margin that could swallow
@@ -90,7 +92,30 @@ public partial class MainWindow : Window
 
         _viewModel.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(NotchViewModel.IsExpanded) or nameof(NotchViewModel.SelectedTab))
+            // IsAiTabSelected, not the raw SelectedTab — MeasureAiTabHeight
+            // needs the AI StackPanel's Visibility binding (in
+            // MainWindow.xaml, bound to IsAiTabSelected) to have already
+            // flipped to Visible before it measures, or it undercounts the
+            // AI tab's content (still Collapsed at that instant) and the
+            // notch ends up too short, clipping the header against Shell's
+            // own top edge. CommunityToolkit.Mvvm raises SelectedTab's own
+            // PropertyChanged *before* IsAiTabSelected's (SelectedTab sits
+            // above IsAiTabSelected in that ObservableProperty's
+            // NotifyPropertyChangedFor list), and WPF's bindings — wired up
+            // in InitializeComponent, before this handler is even attached
+            // — run ahead of this handler on whichever event they're
+            // actually listening to. So keying off IsAiTabSelected here
+            // (which fires on every SelectedTab change, same as SelectedTab
+            // itself) guarantees that specific Visibility flip has already
+            // happened by the time MeasureAiTabHeight runs.
+            //
+            // ActiveClaudeSessionCount is here too so the notch grows/
+            // shrinks live if a session starts or ends while the AI tab is
+            // already the one open, rather than only re-measuring on the
+            // next tab switch — no Visibility race there since the AI
+            // panel's already Visible in that case.
+            if (e.PropertyName is nameof(NotchViewModel.IsExpanded) or nameof(NotchViewModel.IsAiTabSelected)
+                or nameof(NotchViewModel.ActiveClaudeSessionCount))
             {
                 UpdateShellSize(animate: true);
             }
@@ -201,7 +226,12 @@ public partial class MainWindow : Window
     /// SetWindowPos call combining move+resize (rather than separately
     /// setting Width/Height/Left/Top, each of which is its own immediate
     /// native call under the hood) so there's no intermediate state for
-    /// anything to observe even at startup.
+    /// anything to observe even at startup. Height reserves
+    /// MaxWindowHeight, not the shorter MaxNotchHeight every other tab
+    /// uses — the AI tab can grow past that for a long session list (see
+    /// <see cref="MeasureAiTabHeight"/>), and since this window is never
+    /// natively resized again, whatever room isn't reserved here now is
+    /// never available later.
     /// </summary>
     private void PositionWindowAtMaxSize()
     {
@@ -210,7 +240,7 @@ public partial class MainWindow : Window
         var dpi = VisualTreeHelper.GetDpi(this);
         var x = (int)Math.Round(left * dpi.DpiScaleX);
         var cx = (int)Math.Round(NotchViewModel.MaxNotchWidth * dpi.DpiScaleX);
-        var cy = (int)Math.Round(NotchViewModel.MaxNotchHeight * dpi.DpiScaleY);
+        var cy = (int)Math.Round(NotchViewModel.MaxWindowHeight * dpi.DpiScaleY);
 
         NativeMethods.MoveAndResizeWindow(_hwnd, x, 0, cx, cy);
     }
@@ -272,7 +302,9 @@ public partial class MainWindow : Window
     private void UpdateShellSize(bool animate)
     {
         var width = _viewModel.NotchWidth;
-        var height = _viewModel.NotchHeight;
+        var height = _viewModel.IsExpanded && _viewModel.IsAiTabSelected
+            ? MeasureAiTabHeight()
+            : _viewModel.NotchHeight;
 
         if (!animate || !_loaded)
         {
@@ -284,12 +316,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Tab switches go through this same path (SelectedTab affects
-        // NotchHeight), but most tab pairs share an identical footprint —
-        // e.g. Media/Vitals/Shelf are all 400x230; only the AI tab differs,
-        // at 400x280. Bail out entirely when neither dimension is actually
-        // moving, rather than kicking off a same-value animation for no
-        // visual change.
+        // Tab switches (and, for AI, session-count changes) go through this
+        // same path. Width never moves — every tab shares the same 440
+        // expanded width — and height usually doesn't either, since every
+        // tab but AI shares MaxNotchHeight too; only AI, and only once its
+        // session list actually needs more than that (see
+        // MeasureAiTabHeight), moves height here. Bail out entirely when
+        // neither dimension is actually moving, rather than kicking off a
+        // same-value animation for no visual change.
         var widthChanging = Math.Abs(Shell.ActualWidth - width) > 0.5;
         var heightChanging = Math.Abs(Shell.ActualHeight - height) > 0.5;
         if (!widthChanging && !heightChanging)
@@ -325,6 +359,41 @@ public partial class MainWindow : Window
         }
 
         Shell.BeginAnimation(property, animation);
+    }
+
+    /// <summary>
+    /// The AI tab's real target height — measured directly off
+    /// ExpandedPanel rather than predicted from a per-row pixel constant.
+    /// An earlier version tried to estimate this arithmetically (chrome
+    /// height + row count × an assumed row height) and it clipped in
+    /// practice: real Segoe UI line heights don't match a guessed round
+    /// number, so the estimate landed short of what the content actually
+    /// needed.
+    ///
+    /// Measuring with an infinite height constraint is what makes this
+    /// exact instead of another guess: WPF's Grid sizes a Star row to its
+    /// content's desired size whenever the available size is infinite
+    /// (the same behavior Auto rows have — Star only means "share the
+    /// leftover space" once there's a finite amount of it to share), so
+    /// this Measure call reports ExpandedPanel's true natural height for
+    /// whichever tab is actually visible right now, including the
+    /// session list's real rendered row heights, the header, the tab bar,
+    /// and every margin — no separate constants to keep in sync with the
+    /// XAML at all.
+    ///
+    /// This only touches Measure, never Arrange, so it doesn't affect
+    /// what's on screen — WPF's normal layout pass re-measures
+    /// ExpandedPanel for real once Shell.Width/Height (set right after
+    /// this returns) actually change. Clamped to MaxAiTabHeight purely as
+    /// the runaway-session-count safety net described on that constant;
+    /// past it, the session list's ScrollViewer (MainWindow.xaml, no
+    /// MaxHeight of its own) takes back over, since it scrolls automatically
+    /// the moment it's arranged with less room than its content wants.
+    /// </summary>
+    private double MeasureAiTabHeight()
+    {
+        ExpandedPanel.Measure(new Size(NotchViewModel.MaxNotchWidth, double.PositiveInfinity));
+        return Math.Clamp(ExpandedPanel.DesiredSize.Height, NotchViewModel.MaxNotchHeight, NotchViewModel.MaxAiTabHeight);
     }
 
     /// <summary>
