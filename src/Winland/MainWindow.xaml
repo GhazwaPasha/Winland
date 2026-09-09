@@ -137,7 +137,7 @@
                  pinned to one edge, an animated waveform to the other — same idea as a
                  Dynamic Island reacting to audio. -->
             <Grid x:Name="CollapsedMediaPanel"
-                  Margin="10,0,10,0"
+                  Margin="17,0,17,0"
                   VerticalAlignment="Center"
                   Visibility="{Binding IsCollapsedMediaVisible, Converter={StaticResource BoolToVis}}">
                 <Grid.ColumnDefinitions>
@@ -148,7 +148,13 @@
 
                 <Border Grid.Column="0" Width="24" Height="24" CornerRadius="12"
                         Background="{StaticResource NotchTileBrush}" ClipToBounds="True">
-                    <Image Source="{Binding MediaThumbnail}" Stretch="UniformToFill" />
+                    <!-- Border.CornerRadius only rounds the Border's own background, not
+                         child content, so the Image needs its own clip geometry too. -->
+                    <Image Source="{Binding MediaThumbnail}" Stretch="UniformToFill">
+                        <Image.Clip>
+                            <EllipseGeometry Center="12,12" RadiusX="12" RadiusY="12" />
+                        </Image.Clip>
+                    </Image>
                 </Border>
 
                 <!-- Bar heights are driven from code-behind (StartWaveformAnimation) rather
@@ -271,14 +277,15 @@
                                     </Style>
                                 </Border.Style>
                             </Border>
-                            <TextBlock Text="Media" FontSize="12" HorizontalAlignment="Center" Margin="0,6"
-                                       Foreground="{StaticResource NotchTextPrimaryBrush}">
+                            <TextBlock Text="&#xEC4F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,7"
+                                       Foreground="{StaticResource NotchTextPrimaryBrush}" ToolTip="Media">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="FontWeight" Value="Normal" />
+                                        <Setter Property="Opacity" Value="0.55" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsMediaTabSelected}" Value="True">
-                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                                <Setter Property="Opacity" Value="1" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -299,14 +306,15 @@
                                     </Style>
                                 </Border.Style>
                             </Border>
-                            <TextBlock Text="AI" FontSize="12" HorizontalAlignment="Center" Margin="0,6"
-                                       Foreground="{StaticResource NotchTextPrimaryBrush}">
+                            <TextBlock Text="&#xE99A;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,7"
+                                       Foreground="{StaticResource NotchTextPrimaryBrush}" ToolTip="AI">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="FontWeight" Value="Normal" />
+                                        <Setter Property="Opacity" Value="0.55" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsAiTabSelected}" Value="True">
-                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                                <Setter Property="Opacity" Value="1" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -327,14 +335,15 @@
                                     </Style>
                                 </Border.Style>
                             </Border>
-                            <TextBlock Text="Vitals" FontSize="12" HorizontalAlignment="Center" Margin="0,6"
-                                       Foreground="{StaticResource NotchTextPrimaryBrush}">
+                            <TextBlock Text="&#xE9D9;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,7"
+                                       Foreground="{StaticResource NotchTextPrimaryBrush}" ToolTip="Vitals">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="FontWeight" Value="Normal" />
+                                        <Setter Property="Opacity" Value="0.55" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsVitalsTabSelected}" Value="True">
-                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                                <Setter Property="Opacity" Value="1" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -355,14 +364,15 @@
                                     </Style>
                                 </Border.Style>
                             </Border>
-                            <TextBlock Text="Shelf" FontSize="12" HorizontalAlignment="Center" Margin="0,6"
-                                       Foreground="{StaticResource NotchTextPrimaryBrush}">
+                            <TextBlock Text="&#xE7C3;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,7"
+                                       Foreground="{StaticResource NotchTextPrimaryBrush}" ToolTip="Shelf">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="FontWeight" Value="Normal" />
+                                        <Setter Property="Opacity" Value="0.55" />
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding IsShelfTabSelected}" Value="True">
-                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                                <Setter Property="Opacity" Value="1" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -380,8 +390,14 @@
                                 Visibility="{Binding IsMediaTabSelected, Converter={StaticResource BoolToVis}}">
                         <Grid Width="64" Height="64" Margin="0,0,12,0">
                             <Border CornerRadius="8" Background="{StaticResource NotchTileBrush}" />
+                            <!-- Border.CornerRadius only rounds the Border's own background, not
+                                 child content, so the Image needs its own clip geometry too. -->
                             <Image Source="{Binding MediaThumbnail}" Stretch="UniformToFill"
-                                   Visibility="{Binding HasActiveMediaSession, Converter={StaticResource BoolToVis}}" />
+                                   Visibility="{Binding HasActiveMediaSession, Converter={StaticResource BoolToVis}}">
+                                <Image.Clip>
+                                    <RectangleGeometry Rect="0,0,64,64" RadiusX="8" RadiusY="8" />
+                                </Image.Clip>
+                            </Image>
                         </Grid>
 
                         <StackPanel Width="288" VerticalAlignment="Center">
@@ -438,10 +454,13 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
 
-                            <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6" Background="{StaticResource NotchClaudeBrush}">
-                                <TextBlock Text="C" Foreground="White" FontSize="12" FontWeight="Bold"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            </Border>
+                            <!-- Circular, matching the ring/dot vocabulary the rest of
+                                 this tab already uses (the usage rings, the pulsing
+                                 status dot below) — a rounded-square badge was the one
+                                 shape in the tab that didn't belong to that family. -->
+                            <Ellipse Grid.Column="0" Width="28" Height="28" Fill="{StaticResource NotchClaudeBrush}" />
+                            <TextBlock Grid.Column="0" Text="C" Foreground="White" FontSize="12" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
 
                             <TextBlock Grid.Column="1" Text="Claude" FontSize="13" FontWeight="SemiBold"
                                        Margin="10,0,0,0" VerticalAlignment="Center"

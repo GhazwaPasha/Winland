@@ -42,7 +42,19 @@ namespace Winland;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private static readonly TimeSpan AnimationDuration = TimeSpan.FromMilliseconds(280);
+    private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(340);
+    private static readonly TimeSpan CollapseDuration = TimeSpan.FromMilliseconds(220);
+
+    // How far past the target size the shell overshoots before settling,
+    // as a fraction of the size delta being animated. Two keyframes (fast
+    // out to the overshoot point, gentle ease back to the real target)
+    // fake the over/under-shoot-then-settle read of a spring without an
+    // actual physics simulation — a real notch/Dynamic-Island grows with a
+    // little bounce; a single monotonic ease curve reads as "a Width
+    // property tweening" instead. Only applied when growing: shrinking
+    // uses a plain, quicker ease-out (_collapseEasing) with no overshoot —
+    // real UI chrome closes faster and more decisively than it opens.
+    private const double OvershootFraction = 0.10;
 
     private const int WM_NCHITTEST = 0x0084;
     private const nint HTTRANSPARENT = -1;
@@ -50,7 +62,9 @@ public partial class MainWindow : Window
     private const nint MA_NOACTIVATE = 3;
 
     private readonly NotchViewModel _viewModel;
-    private readonly KeySpline _easing = new(0.2, 0.8, 0.2, 1.0); // matches the design's CSS cubic-bezier(.2,.8,.2,1)
+    private readonly KeySpline _collapseEasing = new(0.2, 0.8, 0.2, 1.0); // matches the design's CSS cubic-bezier(.2,.8,.2,1)
+    private readonly KeySpline _expandOutEasing = new(0.16, 1.0, 0.3, 1.0); // fast out to the overshoot point
+    private readonly KeySpline _expandSettleEasing = new(0.45, 0.0, 0.55, 1.0); // ease back down from the overshoot to the real target
     private PinTopmostService? _pinTopmostService;
     private TaskbarIcon? _trayIcon;
     private MenuItem? _showHideMenuItem;
@@ -111,6 +125,13 @@ public partial class MainWindow : Window
 
         _pinTopmostService = new PinTopmostService(_hwnd, Dispatcher);
         _pinTopmostService.FullscreenStateChanged += OnFullscreenStateChanged;
+
+        // The restored IsPinned value (loaded in NotchViewModel's own
+        // constructor, which runs before this window ever attaches its
+        // PropertyChanged listener) never reaches ApplyTopmostState on its
+        // own — without this call the window just sits at its XAML-declared
+        // Topmost="True" until the user toggles pin once themselves.
+        ApplyTopmostState();
 
         PositionWindowAtMaxSize();
         UpdateShellSize(animate: false);
@@ -263,14 +284,26 @@ public partial class MainWindow : Window
             return;
         }
 
-        AnimateShellDimension(WidthProperty, width);
-        AnimateShellDimension(HeightProperty, height);
+        AnimateShellDimension(WidthProperty, Shell.ActualWidth, width);
+        AnimateShellDimension(HeightProperty, Shell.ActualHeight, height);
     }
 
-    private void AnimateShellDimension(DependencyProperty property, double targetValue)
+    private void AnimateShellDimension(DependencyProperty property, double currentValue, double targetValue)
     {
         var animation = new DoubleAnimationUsingKeyFrames();
-        animation.KeyFrames.Add(new SplineDoubleKeyFrame(targetValue, KeyTime.FromTimeSpan(AnimationDuration), _easing));
+
+        if (targetValue > currentValue)
+        {
+            var overshoot = targetValue + (targetValue - currentValue) * OvershootFraction;
+            var overshootTime = TimeSpan.FromMilliseconds(ExpandDuration.TotalMilliseconds * 0.7);
+            animation.KeyFrames.Add(new SplineDoubleKeyFrame(overshoot, KeyTime.FromTimeSpan(overshootTime), _expandOutEasing));
+            animation.KeyFrames.Add(new SplineDoubleKeyFrame(targetValue, KeyTime.FromTimeSpan(ExpandDuration), _expandSettleEasing));
+        }
+        else
+        {
+            animation.KeyFrames.Add(new SplineDoubleKeyFrame(targetValue, KeyTime.FromTimeSpan(CollapseDuration), _collapseEasing));
+        }
+
         Shell.BeginAnimation(property, animation);
     }
 
