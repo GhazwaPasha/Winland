@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  MSIX package manifest for Store submission of the Winland app under the
+  Store listing name "Wisland" (DisplayName below — the internal project,
+  namespace, assembly, and Win32 exe stay named Winland; only the Store-
+  facing identity changes).
+
+  This is a classic "Desktop Bridge" packaging of an existing Win32/WPF app
+  (rescap:runFullTrust), not a WinUI/MSIX-native app — the exe keeps running
+  exactly as it does unpackaged, just wrapped in an MSIX container for Store
+  distribution. See build/Package-Msix.ps1 for how this manifest is combined
+  with a `dotnet publish` output into an actual .msix, and STORE_SUBMISSION.md
+  for the full checklist (including the two placeholders below, which only
+  Partner Center can supply).
+
+  Identity values below are from Partner Center's "App identity" page for
+  the reserved "Wisland" listing (Package Family Name
+  PashaFoundry.Wisland_0mq1c6mycnd66, Store ID 9PB1J8CPDG8D) — filled in,
+  not placeholders anymore.
+
+  Weather is intentionally NOT wired up here (no internetClient capability,
+  no network calls from the shipped app) — see STORE_SUBMISSION.md's
+  "Weather module — detached, not deleted" section for why and how to bring
+  it back in a future update.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap desktop rescap">
+
+  <Identity
+    Name="PashaFoundry.Wisland"
+    Publisher="CN=ACA19620-2C81-4D92-848A-301F3950E48A"
+    Version="1.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Wisland</DisplayName>
+    <PublisherDisplayName>Pasha Foundry</PublisherDisplayName>
+    <Logo>Assets\Store\StoreLogo.png</Logo>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <!-- Required for any packaged classic Win32/WPF app (Desktop Bridge) —
+         runs as a normal full-trust process, not sandboxed like a UWP app. -->
+    <rescap:Capability Name="runFullTrust" />
+    <!-- No internetClient: the shipped app makes no network calls now that
+         Weather is detached (see the top-of-file note and
+         STORE_SUBMISSION.md). Add it back if/when Weather is reconnected. -->
+  </Capabilities>
+
+  <Applications>
+    <Application Id="Winland" Executable="Winland.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Wisland"
+        Description="Wisland — a macOS-notch-style utility shelf for Windows: media controls, system vitals, and privacy indicators in one pinned pill."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Store\Square150x150Logo.png"
+        Square44x44Logo="Assets\Store\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="Assets\Store\Wide310x150Logo.png"
+          Square71x71Logo="Assets\Store\Square71x71Logo.png"
+          Square310x310Logo="Assets\Store\Square310x310Logo.png" />
+        <uap:SplashScreen Image="Assets\Store\SplashScreen.png" BackgroundColor="#202020" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- Packaged "start with Windows" — see StartupService.cs. TaskId
+             must match its TaskId constant exactly. Enabled="false" here
+             only sets the *first-ever-install* default; every later
+             enable/disable happens through the StartupTask WinRT API, per
+             the Settings toggle, not this manifest. -->
+        <desktop:Extension
+          Category="windows.startupTask"
+          Executable="Winland.exe"
+          EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask
+            TaskId="WinlandStartupTask"
+            Enabled="false"
+            DisplayName="Wisland" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

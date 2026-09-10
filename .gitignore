@@ -42,3 +42,10 @@ $RECYCLE.BIN/
 *.cache
 *.tmp
 TestResults/
+
+## MSIX packaging output (see build/Package-Msix.ps1) and local test signing
+artifacts/msix/
+*.msix
+*.msixbundle
+*.appxsym
+*.pfx

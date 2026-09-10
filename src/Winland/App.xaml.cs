@@ -48,6 +48,10 @@ public partial class App : Application
         var appSettingsService = new AppSettingsService();
         var accentColorService = new AccentColorService();
         var startupService = new StartupService();
+        // Weather is intentionally not constructed here — the module was
+        // detached from the shipped app ahead of the Store submission (kept
+        // in place, unwired, for a future update; see STORE_SUBMISSION.md's
+        // "Weather module — detached, not deleted" section).
         _accentColorService = accentColorService;
 
         // Loaded once, up front, rather than separately later — both the

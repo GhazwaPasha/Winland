@@ -84,7 +84,13 @@ public partial class NotchViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsCollapsedMediaVisible))]
     private bool isExpanded;
 
-    /// <summary>"Media", "Vitals", "Network" or "Shelf" — the Quick Settings / Apps segments were dropped from scope; the AI tab was removed later.</summary>
+    /// <summary>
+    /// "Media", "Vitals", "Network" or "Shelf" — the Quick Settings / Apps
+    /// segments were dropped from scope; the AI tab was removed later.
+    /// Weather was detached for the Store submission (see
+    /// STORE_SUBMISSION.md's "Weather module — detached, not deleted"
+    /// section) — it's no longer a reachable value here.
+    /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsMediaTabSelected))]
     [NotifyPropertyChangedFor(nameof(IsVitalsTabSelected))]
@@ -117,8 +123,24 @@ public partial class NotchViewModel : ObservableObject
     [ObservableProperty]
     private bool isPinned = true;
 
-    /// <summary>CommunityToolkit.Mvvm calls this automatically after every IsPinned change — including the initial restore-on-startup one above.</summary>
-    partial void OnIsPinnedChanged(bool value) => _appSettingsService.Save(new AppSettings(value));
+    /// <summary>
+    /// CommunityToolkit.Mvvm calls this automatically after every IsPinned
+    /// change — including the initial restore-on-startup one above (a
+    /// harmless re-save of the exact value it just loaded).
+    ///
+    /// Loads-then-saves-with rather than <c>new AppSettings(value)</c> (what
+    /// this used to do) — a fresh record only sets IsPinned and leaves every
+    /// other field at its type default, so pinning/unpinning used to silently
+    /// wipe StartAtStartup/StartMinimized/BlackMode/WeatherApiKey back to
+    /// "off"/empty on disk the next time any of them changed to look at a
+    /// settings file the pin toggle had already blanked. SettingsViewModel's
+    /// own Persist() already does it this way.
+    /// </summary>
+    partial void OnIsPinnedChanged(bool value)
+    {
+        var current = _appSettingsService.Load();
+        _appSettingsService.Save(current with { IsPinned = value });
+    }
 
     [ObservableProperty]
     private string timeText = string.Empty;
@@ -192,6 +214,13 @@ public partial class NotchViewModel : ObservableObject
         : kbPerSecond.ToString("0.0", CultureInfo.InvariantCulture);
 
     private static string FormatNetworkRateUnit(double kbPerSecond) => kbPerSecond >= NetworkMBThresholdKBs ? "MB/s" : "KB/s";
+
+    // Weather (collapsed-pill block + Weather tab) was detached from the
+    // shipped app for the Store submission — see STORE_SUBMISSION.md's
+    // "Weather module — detached, not deleted" section. IWeatherService/
+    // WeatherService and the WeatherXGeometry resources in App.xaml are
+    // untouched and ready to wire back in; this view model just no longer
+    // holds a reference or exposes weather-derived properties.
 
     // ---- Headphone status ----
 

@@ -94,6 +94,30 @@
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Background" Value="{StaticResource NotchTileBrush}" />
         </Style>
+
+        <!-- Plain single-line text entry, themed to match the rest of this
+             window — WPF's stock TextBox otherwise renders with a white
+             system background/border that would look like a stray hole in
+             the Mica surface. No placeholder text (TextBox has no native
+             support for one) — the row's own description label above it
+             carries that instead. -->
+        <Style x:Key="SettingsTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource NotchSliderTrackBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource NotchTextPrimaryBrush}" />
+            <Setter Property="CaretBrush" Value="{StaticResource NotchTextPrimaryBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="6">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <StackPanel Margin="20">
@@ -187,6 +211,11 @@
                     <ToggleButton Grid.Column="2" VerticalAlignment="Center" Style="{StaticResource ToggleSwitchStyle}"
                                   IsChecked="{Binding BlackMode}" />
                 </Grid>
+
+                <!-- The Weather API key row (OpenWeatherMap override) lived here —
+                     removed along with the rest of the module ahead of the Store
+                     submission; see STORE_SUBMISSION.md's "Weather module —
+                     detached, not deleted" section. -->
 
             </StackPanel>
         </Border>

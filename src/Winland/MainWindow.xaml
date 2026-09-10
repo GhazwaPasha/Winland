@@ -441,84 +441,109 @@
         <Grid x:Name="ShellContent">
 
             <!-- ==================== Collapsed pill ==================== -->
-            <StackPanel x:Name="CollapsedPanel"
-                        Orientation="Horizontal"
-                        Background="Transparent"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Visibility="{Binding IsCollapsedIconRowVisible, Converter={StaticResource BoolToVis}}">
+            <!-- A Grid with three independently-aligned children sharing the
+                 same cell (not nested inside one another) — this is what
+                 lets the clock sit dead-center on the pill's own width no
+                 matter how wide the weather block or the status icons are,
+                 the same three-zone trick a phone status bar uses, rather
+                 than a single centered StackPanel where every element
+                 clumps into one block and drags the clock off-center the
+                 moment an icon appears or disappears. -->
+            <Grid x:Name="CollapsedPanel"
+                  Background="Transparent"
+                  Margin="16,0"
+                  VerticalAlignment="Center"
+                  Visibility="{Binding IsCollapsedIconRowVisible, Converter={StaticResource BoolToVis}}">
 
-                <!-- Identity block: the clock always anchors the left edge, in both
-                     the collapsed pill and the expanded header below. The status
-                     block that follows keeps the exact same element order in both
-                     states too (cam/mic -> headphone -> pin), so expanding reads
-                     as one object reshaping instead of elements swapping sides. -->
+                <!-- Weather block used to sit here (left edge, icon+temp) —
+                     detached along with the Weather tab for the Store
+                     submission; see STORE_SUBMISSION.md's "Weather module —
+                     detached, not deleted" section. NotchViewModel no
+                     longer exposes WeatherHasData/WeatherIconGeometry/
+                     WeatherTempText, so this stays out until that's wired
+                     back in. -->
+
+                <!-- Identity block: the clock anchors dead-center on the pill
+                     now (it used to anchor the left edge — see the Grid
+                     comment above for why that changed once the weather
+                     block needed the left side too). The expanded header
+                     below still leads with the clock at its own left edge;
+                     the two are no longer required to match now that
+                     collapsed and expanded lay out around genuinely
+                     different content (weather has its own tab there). -->
                 <TextBlock Text="{Binding TimeText}" FontSize="13" FontWeight="SemiBold"
                            Foreground="{StaticResource NotchTextPrimaryBrush}"
-                           VerticalAlignment="Center" Margin="0,0,8,0" />
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
 
-                <Ellipse Width="6" Height="6" Margin="0,0,8,0" VerticalAlignment="Center"
-                         RenderTransformOrigin="0.5,0.5"
-                         Style="{StaticResource PulsingDotAppearStyle}"
-                         Fill="{StaticResource NotchCamActiveBrush}"
-                         Visibility="{Binding IsCameraInUse, Converter={StaticResource BoolToVis}}">
-                    <Ellipse.RenderTransform>
-                        <ScaleTransform />
-                    </Ellipse.RenderTransform>
-                </Ellipse>
-                <TextBlock Text="&#xE720;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
-                           Foreground="{StaticResource NotchWarningBrush}"
-                           Margin="0,0,8,0" VerticalAlignment="Center"
-                           RenderTransformOrigin="0.5,0.5"
-                           Style="{StaticResource IconAppearStyle}"
-                           Visibility="{Binding IsMicInUse, Converter={StaticResource BoolToVis}}">
-                    <TextBlock.RenderTransform>
-                        <ScaleTransform />
-                    </TextBlock.RenderTransform>
-                </TextBlock>
+                <!-- Status block: docked to the right edge instead, keeping the
+                     exact same element order as the expanded header below
+                     (cam/mic -> headphone -> pin) so expanding still reads as
+                     one object reshaping rather than elements swapping sides. -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Ellipse Width="6" Height="6" Margin="0,0,8,0" VerticalAlignment="Center"
+                             RenderTransformOrigin="0.5,0.5"
+                             Style="{StaticResource PulsingDotAppearStyle}"
+                             Fill="{StaticResource NotchCamActiveBrush}"
+                             Visibility="{Binding IsCameraInUse, Converter={StaticResource BoolToVis}}">
+                        <Ellipse.RenderTransform>
+                            <ScaleTransform />
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
+                    <TextBlock Text="&#xE720;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14"
+                               Foreground="{StaticResource NotchWarningBrush}"
+                               Margin="0,0,8,0" VerticalAlignment="Center"
+                               RenderTransformOrigin="0.5,0.5"
+                               Style="{StaticResource IconAppearStyle}"
+                               Visibility="{Binding IsMicInUse, Converter={StaticResource BoolToVis}}">
+                        <TextBlock.RenderTransform>
+                            <ScaleTransform />
+                        </TextBlock.RenderTransform>
+                    </TextBlock>
 
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0"
-                            RenderTransformOrigin="0.5,0.5"
-                            Style="{StaticResource IconAppearStyle}"
-                            Visibility="{Binding IsHeadphoneConnected, Converter={StaticResource BoolToVis}}">
-                    <StackPanel.RenderTransform>
-                        <ScaleTransform />
-                    </StackPanel.RenderTransform>
-                    <TextBlock Text="&#xE7F6;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
-                               Foreground="{StaticResource NotchTextPrimaryBrush}"
-                               Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource InverseBoolToVis}}" />
-                    <Path Data="{StaticResource SurfaceEarbudsGeometry}" Stretch="Uniform" Width="16" Height="16"
-                          Fill="{StaticResource NotchTextPrimaryBrush}"
-                          Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource BoolToVis}}" />
-                    <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="11" Margin="4,0,0,0"
-                               Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center"
-                               Visibility="{Binding HasHeadphoneBattery, Converter={StaticResource BoolToVis}}" />
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0"
+                                RenderTransformOrigin="0.5,0.5"
+                                Style="{StaticResource IconAppearStyle}"
+                                Visibility="{Binding IsHeadphoneConnected, Converter={StaticResource BoolToVis}}">
+                        <StackPanel.RenderTransform>
+                            <ScaleTransform />
+                        </StackPanel.RenderTransform>
+                        <TextBlock Text="&#xE7F6;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                   Foreground="{StaticResource NotchTextPrimaryBrush}"
+                                   Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource InverseBoolToVis}}" />
+                        <Path Data="{StaticResource SurfaceEarbudsGeometry}" Stretch="Uniform" Width="16" Height="16"
+                              Fill="{StaticResource NotchTextPrimaryBrush}"
+                              Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource BoolToVis}}" />
+                        <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="11" Margin="4,0,0,0"
+                                   Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center"
+                                   Visibility="{Binding HasHeadphoneBattery, Converter={StaticResource BoolToVis}}" />
+                    </StackPanel>
+
+                    <!-- Only rendered while pinned — like the cam/mic dots above, this
+                         is a "notable state" indicator, not a permanent status readout.
+                         Unpinning always happens via the same lock chip in the expanded
+                         header; clicking this one (while it's visible) still unpins
+                         directly, same as the old pin icon did. -->
+                    <!-- Same footprint (20x20, radius 4) and icon size (12) as the
+                         expanded header's pin chip below — this is the same
+                         control in two states, so it shouldn't visibly resize
+                         between them. Last in the row, so no trailing margin —
+                         it sits flush against the Grid's own 16px edge margin. -->
+                    <Grid VerticalAlignment="Center"
+                          RenderTransformOrigin="0.5,0.5"
+                          Style="{StaticResource PinChipStyle}"
+                          MouseLeftButtonUp="PinIcon_MouseLeftButtonUp"
+                          Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}">
+                        <Grid.RenderTransform>
+                            <ScaleTransform />
+                        </Grid.RenderTransform>
+                        <Border Width="20" Height="20" CornerRadius="4"
+                                Background="{StaticResource NotchTabBarBackgroundBrush}" />
+                        <TextBlock Text="&#xE72E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
+                                   Foreground="{DynamicResource NotchAccentBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Grid>
                 </StackPanel>
-
-                <!-- Only rendered while pinned — like the cam/mic dots above, this
-                     is a "notable state" indicator, not a permanent status readout.
-                     Unpinning always happens via the same lock chip in the expanded
-                     header; clicking this one (while it's visible) still unpins
-                     directly, same as the old pin icon did. -->
-                <!-- Same footprint (20x20, radius 4) and icon size (12) as the
-                     expanded header's pin chip below — this is the same
-                     control in two states, so it shouldn't visibly resize
-                     between them. -->
-                <Grid Margin="0,0,8,0" VerticalAlignment="Center"
-                      RenderTransformOrigin="0.5,0.5"
-                      Style="{StaticResource PinChipStyle}"
-                      MouseLeftButtonUp="PinIcon_MouseLeftButtonUp"
-                      Visibility="{Binding IsPinned, Converter={StaticResource BoolToVis}}">
-                    <Grid.RenderTransform>
-                        <ScaleTransform />
-                    </Grid.RenderTransform>
-                    <Border Width="20" Height="20" CornerRadius="4"
-                            Background="{StaticResource NotchTabBarBackgroundBrush}" />
-                    <TextBlock Text="&#xE72E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12"
-                               Foreground="{DynamicResource NotchAccentBrush}"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                </Grid>
-            </StackPanel>
+            </Grid>
 
             <!-- ==================== Collapsed "now playing" pill ====================
                  Swapped in for CollapsedPanel while media is actively playing: album art
@@ -828,6 +853,11 @@
                                 </TextBlock.Style>
                             </TextBlock>
                         </Grid>
+
+                        <!-- The Weather tab button (Grid.Column="4", WeatherCloudyGeometry
+                             icon, WeatherTab_MouseLeftButtonUp handler) was removed here
+                             along with the rest of the module — see STORE_SUBMISSION.md's
+                             "Weather module — detached, not deleted" section. -->
                     </Grid>
                 </Border>
 
@@ -1144,6 +1174,13 @@
                             </Border>
                         </Grid>
                     </StackPanel>
+
+                    <!-- The Weather tab's content panel (current-conditions tile +
+                         High/Low tiles) was removed here along with the rest of the
+                         module — see STORE_SUBMISSION.md's "Weather module —
+                         detached, not deleted" section for where the reusable pieces
+                         (WeatherService, WeatherXGeometry resources) still live. -->
+
 
                     <!-- Shelf tab -->
                     <Grid Style="{StaticResource TabContentFadeInStyle}"

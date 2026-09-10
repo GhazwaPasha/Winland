@@ -66,6 +66,13 @@ public partial class SettingsViewModel : ObservableObject
 
     partial void OnBlackModeChanged(bool value) => Persist();
 
+    // No Weather API key property here — the Settings UI row for it was
+    // removed along with the rest of the module (see
+    // STORE_SUBMISSION.md's "Weather module — detached, not deleted"
+    // section). AppSettings.WeatherApiKey itself is untouched; Persist()
+    // below round-trips whatever value is already on disk instead of this
+    // view model owning it.
+
     private void Persist()
     {
         if (_isLoading)
@@ -74,6 +81,11 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         var current = _appSettingsService.Load();
-        _appSettingsService.Save(current with { StartAtStartup = StartAtStartup, StartMinimized = StartMinimized, BlackMode = BlackMode });
+        _appSettingsService.Save(current with
+        {
+            StartAtStartup = StartAtStartup,
+            StartMinimized = StartMinimized,
+            BlackMode = BlackMode,
+        });
     }
 }

@@ -167,26 +167,30 @@ public partial class MainWindow : Window
                 ApplyTopmostState();
             }
 
-            if (e.PropertyName == nameof(NotchViewModel.IsVitalsTabSelected))
+            // Both the reveal-trigger below and collapsing itself can flip
+            // whether the rings are "worth animating" right now, so this
+            // one helper re-evaluates on either. See its own doc comment
+            // for why every animation past this point is gated on
+            // IsExpanded — none of them were before, and it turned out
+            // CpuPercent/RamPercent/DiskPercent/GpuPercent update every
+            // second forever (SystemVitalsService never gates that
+            // sampling the way it now gates Network's), so four
+            // StrokeDashOffset animations were restarting every second
+            // whether or not the notch was even open, as long as Vitals
+            // happened to be the last-selected tab — a permanent background
+            // cost competing for the same frame budget as everything else,
+            // including the shell's own expand/collapse animation.
+            if (e.PropertyName is nameof(NotchViewModel.IsExpanded) or nameof(NotchViewModel.IsVitalsTabSelected))
             {
-                if (_viewModel.IsVitalsTabSelected)
-                {
-                    RevealVitalsRings();
-                }
-                else
-                {
-                    // Re-opening the tab later should sweep in from empty
-                    // again, not just resume wherever the numbers happen to
-                    // be — see _vitalsRingsRevealed's own doc comment.
-                    _vitalsRingsRevealed = false;
-                }
+                UpdateVitalsRingRevealState();
             }
 
-            // Only while the tab is both open and past its initial reveal —
-            // a DashOffset change that arrives while the tab isn't visible
-            // has nothing on screen to animate, and one that arrives before
-            // RevealVitalsRings has run yet would just be racing it.
-            if (_viewModel.IsVitalsTabSelected && _vitalsRingsRevealed)
+            // Only while the rings are actually on screen (expanded, Vitals
+            // selected) and past their initial reveal — a DashOffset change
+            // that arrives otherwise has nothing visible to animate, and
+            // one that arrives before RevealVitalsRings has run yet would
+            // just be racing it.
+            if (_viewModel.IsExpanded && _viewModel.IsVitalsTabSelected && _vitalsRingsRevealed)
             {
                 switch (e.PropertyName)
                 {
@@ -205,21 +209,55 @@ public partial class MainWindow : Window
                 }
             }
 
+            // Same permanent-background-cost bug as the rings above, just
+            // for the Media tab: MediaProgress updates roughly every second
+            // for as long as anything is playing, completely independent of
+            // which tab is selected or whether the notch is even expanded —
+            // so this used to restart a 900ms ProgressBar animation every
+            // second in the background regardless. Gated on both IsExpanded
+            // and IsMediaTabSelected now — MediaProgressBar isn't reachable
+            // from the collapsed "now playing" pill at all (that layout has
+            // no progress bar of its own), so there's nothing for either
+            // animation to usefully do unless the Media tab is the one
+            // actually on screen.
+            //
             // MediaTitle only actually changes (CommunityToolkit's
             // [ObservableProperty] setters no-op on an unchanged value) on a
             // genuine new track — MediaChanged fires far more often than
             // that (roughly once a second, from playback-position ticks),
             // but re-setting MediaTitle to the same string along the way
             // never raises this, so this only ever fires on a real track
-            // change, not every tick.
-            if (e.PropertyName == nameof(NotchViewModel.MediaTitle))
+            // change, not every tick; gating it the same way just means a
+            // track change that happens while you're looking at a different
+            // tab shows up already-settled (Opacity 1) rather than fading
+            // in retroactively once you switch back, which isn't a loss
+            // worth animating for.
+            if (_viewModel.IsExpanded && _viewModel.IsMediaTabSelected)
             {
-                AnimateMediaTrackChange();
+                if (e.PropertyName == nameof(NotchViewModel.MediaTitle))
+                {
+                    AnimateMediaTrackChange();
+                }
+
+                if (e.PropertyName == nameof(NotchViewModel.MediaProgress))
+                {
+                    AnimateMediaProgress(_viewModel.MediaProgress);
+                }
             }
 
-            if (e.PropertyName == nameof(NotchViewModel.MediaProgress))
+            // Whenever the Media tab becomes the one actually visible
+            // (switched to, or the notch expands while it's already
+            // selected), snap the progress bar to the current value
+            // immediately rather than leaving it at whatever it was last
+            // animated to before the gate above stopped updating it — the
+            // alternative is a stale bar for up to a second, until the next
+            // MediaProgress tick happens to arrive on its own.
+            if ((e.PropertyName is nameof(NotchViewModel.IsExpanded) or nameof(NotchViewModel.IsMediaTabSelected))
+                && _viewModel.IsExpanded && _viewModel.IsMediaTabSelected)
             {
-                AnimateMediaProgress(_viewModel.MediaProgress);
+                MediaProgressBar.BeginAnimation(RangeBase.ValueProperty, null);
+                MediaProgressBar.Value = _viewModel.MediaProgress;
+                _lastMediaProgressTarget = _viewModel.MediaProgress;
             }
 
         };
@@ -629,6 +667,33 @@ public partial class MainWindow : Window
         strokeGeometry.Figures.Add(strokeFigure);
         strokeGeometry.Freeze();
         stroke = strokeGeometry;
+    }
+
+    /// <summary>
+    /// Decides whether the rings should be considered "revealed" right now,
+    /// called whenever either IsExpanded or IsVitalsTabSelected changes.
+    /// Only actually visible (expanded *and* Vitals selected) triggers the
+    /// reveal, and only once per time it becomes visible — everything else
+    /// (collapsed, or a different tab selected) resets the flag so the next
+    /// time this *does* become visible, it sweeps in from empty again
+    /// rather than resuming wherever the numbers happen to be. That reset
+    /// covers both "switched to a different tab" and "collapsed while still
+    /// on Vitals" with one branch, since both are just "not currently
+    /// visible" from the rings' point of view.
+    /// </summary>
+    private void UpdateVitalsRingRevealState()
+    {
+        if (_viewModel.IsExpanded && _viewModel.IsVitalsTabSelected)
+        {
+            if (!_vitalsRingsRevealed)
+            {
+                RevealVitalsRings();
+            }
+        }
+        else
+        {
+            _vitalsRingsRevealed = false;
+        }
     }
 
     /// <summary>
