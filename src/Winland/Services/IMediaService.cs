@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace Winland.Services;
@@ -13,6 +14,14 @@ public interface IMediaService
     bool IsPlaying { get; }
     double Progress { get; }
     BitmapImage? Thumbnail { get; }
+
+    /// <summary>
+    /// A vibrant color sampled from <see cref="Thumbnail"/>'s dominant hue,
+    /// tuned for legibility against the notch's dark background — falls
+    /// back to white when there's no thumbnail or it's effectively
+    /// grayscale (nothing meaningful to sample a hue from).
+    /// </summary>
+    Color ThumbnailAccentColor { get; }
 
     event EventHandler? MediaChanged;
 

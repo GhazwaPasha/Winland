@@ -27,6 +27,12 @@
             <SolidColorBrush x:Key="NotchStrokeBrush" Color="#1AFFFFFF" />
             <SolidColorBrush x:Key="NotchTextPrimaryBrush" Color="#FFFFFFFF" />
             <SolidColorBrush x:Key="NotchTextSecondaryBrush" Color="#A6FFFFFF" />
+            <!-- Third contrast tier — inactive tab-bar glyphs and other
+                 "present but not emphasized" chrome. Introduced to replace
+                 a spread of inline Opacity="0.4…0.9" values that were doing
+                 this job ad hoc with no shared floor; see the notch design
+                 audit for the full before/after. -->
+            <SolidColorBrush x:Key="NotchTextTertiaryBrush" Color="#66FFFFFF" />
             <SolidColorBrush x:Key="NotchTabBarBackgroundBrush" Color="#0FFFFFFF" />
             <SolidColorBrush x:Key="NotchTabActiveBackgroundBrush" Color="#24FFFFFF" />
             <SolidColorBrush x:Key="NotchTileBrush" Color="#0FFFFFFF" />
@@ -34,7 +40,6 @@
 
             <SolidColorBrush x:Key="NotchAccentBrush" Color="#3E93E8" />
             <SolidColorBrush x:Key="NotchOnAccentBrush" Color="#FFFFFFFF" />
-            <SolidColorBrush x:Key="NotchClaudeBrush" Color="#D97757" />
             <SolidColorBrush x:Key="NotchWarningBrush" Color="#E8A33E" />
             <SolidColorBrush x:Key="NotchCamActiveBrush" Color="#34D399" />
 
@@ -46,23 +51,12 @@
                 is Microsoft's own "Surface Earbuds" icon from the Fluent UI
                 System Icons library instead (24_filled, MIT licensed,
                 github.com/microsoft/fluentui-system-icons), pasted in as
-                raw path data — same "hand-drawn vector icon" technique the
-                AI tab's usage rings already use, just with Microsoft's path
-                data instead of hand-plotted geometry. viewBox is 0 0 24 24;
-                Path.Stretch handles scaling wherever it's used.
+                raw path data — same "hand-drawn vector icon" technique used
+                elsewhere in this app for hand-plotted geometry (the Vitals
+                tab's usage rings). viewBox is 0 0 24 24; Path.Stretch
+                handles scaling wherever it's used.
             -->
             <Geometry x:Key="SurfaceEarbudsGeometry">M10.1095 17.2396C10.4797 19.3108 11.7608 21.0663 13.5237 22.0769L11.0508 22.8976C10.1775 23.1875 9.21914 22.8441 8.72861 22.0656L8.29792 21.3821C7.81552 20.6165 7.90725 19.6224 8.5216 18.9581L10.1095 17.2396ZM17 9.99973C20.3137 9.99973 23 12.686 23 15.9997C23 19.3134 20.3137 21.9997 17 21.9997C13.6863 21.9997 11 19.3134 11 15.9997C11 12.686 13.6863 9.99973 17 9.99973ZM7 0.999732C7.21401 0.999732 7.4254 1.01094 7.63362 1.03279L7.28304 1.14831C6.896 1.2552 6.48296 1.43953 6.09932 1.68482C3.99516 3.03021 3.36659 5.82112 4.69961 7.92118C6.03404 10.0234 8.82546 10.6324 10.9318 9.28562C11.2756 9.06579 11.5874 8.80241 11.8647 8.50252L12.993 7.29285C12.8401 10.4704 10.2154 12.9997 7 12.9997C3.68629 12.9997 1 10.3134 1 6.99973C1 3.68602 3.68629 0.999732 7 0.999732ZM12.7967 1.64828L12.9039 1.77885L12.9953 1.91079L13.6434 2.93189C14.1006 3.65215 14.0479 4.57663 13.5286 5.23809L13.4185 5.36673L11.1304 7.82365C10.917 8.05448 10.6716 8.26501 10.3931 8.44311C8.75189 9.49247 6.58083 9.01886 5.54389 7.38527C4.50696 5.75167 4.99681 3.5767 6.63801 2.52733C6.9425 2.33264 7.26524 2.19037 7.59558 2.09821L10.681 1.08303C11.4452 0.831282 12.2738 1.06383 12.7967 1.64828ZM10.351 3.05921C10.0381 3.26869 9.93343 3.67272 10.0901 4.00305L10.145 4.09967L10.4062 4.48981L10.4746 4.57738C10.7203 4.84811 11.1338 4.90529 11.4467 4.6958C11.7596 4.48631 11.8642 4.08229 11.7076 3.75195L11.6527 3.65533L11.3915 3.2652L11.3231 3.17762C11.0773 2.9069 10.6639 2.84972 10.351 3.05921Z</Geometry>
-
-            <!--
-                The real Claude "starburst" mark — Simple Icons' redistributable
-                brand-icon set (MIT licensed, github.com/simple-icons/simple-icons),
-                pasted in as raw path data the same "hand-drawn vector icon"
-                technique SurfaceEarbudsGeometry above already uses. viewBox is
-                0 0 24 24; Path.Stretch handles scaling wherever it's used. Drawn
-                white on top of NotchClaudeBrush's orange circle in the AI tab,
-                replacing what used to be a plain "C" letter.
-            -->
-            <Geometry x:Key="ClaudeMarkGeometry">m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z</Geometry>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

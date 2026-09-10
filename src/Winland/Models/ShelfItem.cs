@@ -21,7 +21,16 @@ namespace Winland.Models;
 /// (from <see cref="LoadIcon"/>, run on a background thread) once the lookup
 /// finishes, whatever it finds.
 /// </summary>
-public sealed record ShelfItem(string Path, string DisplayName, ImageSource? Icon, bool IsIconLoading)
+/// <param name="IsRemoving">
+/// Set the instant a removal is requested (drag-out completed, the (x)
+/// glyph clicked, or a missing-file prune) — never removed from
+/// NotchViewModel.ShelfItems directly. MainWindow.xaml's chip DataTemplate
+/// reacts to this becoming true with a fade+scale-out (ListItemEnterStyle),
+/// and NotchViewModel actually removes the item from the collection only
+/// after that animation's own duration elapses, so the chip is visually
+/// gone before its container disappears rather than popping out instantly.
+/// </param>
+public sealed record ShelfItem(string Path, string DisplayName, ImageSource? Icon, bool IsIconLoading, bool IsRemoving = false)
 {
     /// <summary>Immediately-available chip for a path already confirmed to exist — icon fetch happens after.</summary>
     public static ShelfItem CreatePending(string path)

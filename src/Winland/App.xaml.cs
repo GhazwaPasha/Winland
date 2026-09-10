@@ -27,6 +27,15 @@ public partial class App : Application
     private MainWindow? _window;
     private IAccentColorService? _accentColorService;
 
+    // Overrides the usual tint/accent panel logic entirely once on — see
+    // ApplyAccentColors. Mirrors the settings window's own BlackMode
+    // property (SettingsViewModel), kept in sync by the PropertyChanged
+    // subscription below rather than read from settingsViewModel directly
+    // on every ApplyAccentColors call, since ApplyAccentColors also fires
+    // from AccentColorService.Changed — a live OS accent-change callback
+    // that has no view model in scope at all.
+    private bool _blackModeEnabled;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -37,19 +46,48 @@ public partial class App : Application
         var headphoneService = new HeadphoneService();
         var shelfStorageService = new ShelfStorageService();
         var appSettingsService = new AppSettingsService();
-        var claudeCodeActivityService = new ClaudeCodeActivityService();
         var accentColorService = new AccentColorService();
+        var startupService = new StartupService();
         _accentColorService = accentColorService;
+
+        // Loaded once, up front, rather than separately later — both the
+        // panel's initial black-mode state below and the startup/minimized
+        // wiring further down need it, and it's a cheap, side-effect-free
+        // file read either way.
+        var settings = appSettingsService.Load();
+        _blackModeEnabled = settings.BlackMode;
 
         accentColorService.Changed += (_, _) => Dispatcher.Invoke(ApplyAccentColors);
         ApplyAccentColors();
 
         var viewModel = new NotchViewModel(
             mediaService, privacyIndicatorService, systemVitalsService, headphoneService, shelfStorageService,
-            appSettingsService, claudeCodeActivityService);
+            appSettingsService);
+        var settingsViewModel = new SettingsViewModel(appSettingsService, startupService);
 
-        _window = new MainWindow(viewModel);
-        _window.Show();
+        // Re-applies the panel brush the instant Black Mode is toggled in
+        // SettingsWindow, rather than only on the next launch — the same
+        // "takes effect immediately" expectation IsPinned already meets.
+        settingsViewModel.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(SettingsViewModel.BlackMode))
+            {
+                _blackModeEnabled = settingsViewModel.BlackMode;
+                ApplyAccentColors();
+            }
+        };
+
+        // Re-applies the saved "start at startup" preference on every launch,
+        // not just the first time it's toggled on — see StartupService's own
+        // doc comment for why (this app is a self-contained, per-architecture
+        // exe, so its own path can move between updates/reinstalls).
+        startupService.SetEnabled(settings.StartAtStartup);
+
+        _window = new MainWindow(viewModel, settingsViewModel, settings.StartMinimized);
+        if (!settings.StartMinimized)
+        {
+            _window.Show();
+        }
     }
 
     /// <summary>
@@ -69,6 +107,15 @@ public partial class App : Application
     /// work here, on the first call or any later one. MainWindow.xaml binds
     /// to these keys via DynamicResource specifically so it re-resolves to
     /// whatever the current entry is on every replacement.
+    ///
+    /// NotchAccentBrush/NotchOnAccentBrush are untouched by Black Mode —
+    /// same reasoning as the tint opt-out already gives them (see the class
+    /// doc): the pin/progress/status-dot accent is a small-control signal
+    /// that always stays live and visible, regardless of what's going on
+    /// with the pill body's own background. Only NotchPanelBrush — the
+    /// pill's fill — actually goes solid black; NotchStrokeBrush is left
+    /// alone too, since its border is subtle enough to still read as "solid
+    /// black with a hairline edge" rather than fighting the effect.
     /// </summary>
     private void ApplyAccentColors()
     {
@@ -81,6 +128,13 @@ public partial class App : Application
 
         Resources["NotchAccentBrush"] = new SolidColorBrush(accent);
         Resources["NotchOnAccentBrush"] = new SolidColorBrush(_accentColorService.IsAccentLight ? Colors.Black : Colors.White);
+
+        if (_blackModeEnabled)
+        {
+            Resources["NotchPanelBrush"] = new SolidColorBrush(Colors.Black);
+            Resources["NotchStrokeBrush"] = new SolidColorBrush(BaseStrokeColor);
+            return;
+        }
 
         var tint = _accentColorService.IsTintEnabled;
         Resources["NotchPanelBrush"] = new SolidColorBrush(tint ? Blend(BasePanelColor, accent, PanelTintAmount) : BasePanelColor);

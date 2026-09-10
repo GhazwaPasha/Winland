@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -27,7 +30,6 @@ public partial class NotchViewModel : ObservableObject
     private readonly IHeadphoneService _headphoneService;
     private readonly IShelfStorageService _shelfStorageService;
     private readonly IAppSettingsService _appSettingsService;
-    private readonly IClaudeCodeActivityService _claudeCodeActivityService;
     private readonly DispatcherTimer _clockTimer;
 
     public NotchViewModel(
@@ -36,8 +38,7 @@ public partial class NotchViewModel : ObservableObject
         ISystemVitalsService systemVitalsService,
         IHeadphoneService headphoneService,
         IShelfStorageService shelfStorageService,
-        IAppSettingsService appSettingsService,
-        IClaudeCodeActivityService claudeCodeActivityService)
+        IAppSettingsService appSettingsService)
     {
         _dispatcher = Dispatcher.CurrentDispatcher;
         _mediaService = mediaService;
@@ -46,7 +47,6 @@ public partial class NotchViewModel : ObservableObject
         _headphoneService = headphoneService;
         _shelfStorageService = shelfStorageService;
         _appSettingsService = appSettingsService;
-        _claudeCodeActivityService = claudeCodeActivityService;
 
         // Restore last session's pin state before anything else runs — this
         // assignment does trigger OnIsPinnedChanged below and re-save the
@@ -64,14 +64,12 @@ public partial class NotchViewModel : ObservableObject
         RefreshPrivacyIndicators();
         RefreshVitals();
         RefreshHeadphone();
-        RefreshClaudeActivity();
         LoadShelf();
 
         _clockTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _clockTimer.Tick += (_, _) =>
         {
             RefreshClock();
-            RefreshClaudeActivity();
             PruneMissingShelfItems();
         };
         _clockTimer.Start();
@@ -81,18 +79,16 @@ public partial class NotchViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(NotchWidth))]
-    [NotifyPropertyChangedFor(nameof(NotchHeight))]
     [NotifyPropertyChangedFor(nameof(NotchCornerRadius))]
     [NotifyPropertyChangedFor(nameof(IsCollapsedIconRowVisible))]
     [NotifyPropertyChangedFor(nameof(IsCollapsedMediaVisible))]
     private bool isExpanded;
 
-    /// <summary>"Media", "Ai", "Vitals" or "Shelf" — the Quick Settings / Apps segments were dropped from scope.</summary>
+    /// <summary>"Media", "Vitals", "Network" or "Shelf" — the Quick Settings / Apps segments were dropped from scope; the AI tab was removed later.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(NotchHeight))]
     [NotifyPropertyChangedFor(nameof(IsMediaTabSelected))]
-    [NotifyPropertyChangedFor(nameof(IsAiTabSelected))]
     [NotifyPropertyChangedFor(nameof(IsVitalsTabSelected))]
+    [NotifyPropertyChangedFor(nameof(IsNetworkTabSelected))]
     [NotifyPropertyChangedFor(nameof(IsShelfTabSelected))]
     private string selectedTab = "Media";
 
@@ -108,7 +104,15 @@ public partial class NotchViewModel : ObservableObject
         {
             PruneMissingShelfItems();
         }
+
+        UpdateNetworkSamplingState();
     }
+
+    /// <summary>Network throughput is sampled on demand (see ISystemVitalsService.SetNetworkSamplingEnabled) — only while the Network tab is both selected and actually visible, i.e. the notch is expanded.</summary>
+    partial void OnIsExpandedChanged(bool value) => UpdateNetworkSamplingState();
+
+    private void UpdateNetworkSamplingState()
+        => _systemVitalsService.SetNetworkSamplingEnabled(IsExpanded && IsNetworkTabSelected);
 
     [ObservableProperty]
     private bool isPinned = true;
@@ -128,7 +132,7 @@ public partial class NotchViewModel : ObservableObject
     [ObservableProperty]
     private bool isCameraInUse;
 
-    // ---- Vitals tab (CPU/RAM/disk/GPU/network) ----
+    // ---- Vitals tab (CPU/RAM/disk/GPU — network moved to its own tab, see below) ----
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CpuDashOffset))]
@@ -146,22 +150,48 @@ public partial class NotchViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(GpuDashOffset))]
     private double gpuPercent;
 
-    [ObservableProperty]
-    private double networkDownKBs;
-
-    [ObservableProperty]
-    private double networkUpKBs;
-
     // The four Vitals rings are all the same size — one shared
     // radius/circumference pair covers all of them, and each metric only
-    // needs its own DashOffset.
-    public double VitalsRingRadius => 22;
+    // needs its own DashOffset. 26 (52px diameter) rather than the original
+    // 22 — with the Download/Upload row gone (see the Network tab below),
+    // the rings have the row it used to share space with to grow into.
+    public double VitalsRingRadius => 26;
     public double VitalsRingStrokeWidth => 5;
     public double VitalsRingCircumference => 2 * Math.PI * VitalsRingRadius / VitalsRingStrokeWidth;
     public double CpuDashOffset => VitalsRingCircumference * (1 - CpuPercent / 100.0);
     public double RamDashOffset => VitalsRingCircumference * (1 - RamPercent / 100.0);
     public double DiskDashOffset => VitalsRingCircumference * (1 - DiskPercent / 100.0);
     public double GpuDashOffset => VitalsRingCircumference * (1 - GpuPercent / 100.0);
+
+    // ---- Network tab (live throughput) ----
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(NetworkDownValueText))]
+    [NotifyPropertyChangedFor(nameof(NetworkDownUnitText))]
+    private double networkDownKBs;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(NetworkUpValueText))]
+    [NotifyPropertyChangedFor(nameof(NetworkUpUnitText))]
+    private double networkUpKBs;
+
+    // 1024, not 1000 — SystemVitalsService's own KB/s is already a binary
+    // kilobyte (bytes / 1024.0), so switching units at the binary boundary
+    // is what keeps the two consistent; a decimal 1000 threshold would
+    // have "999 KB/s" flip to "1.00 MB/s" one tick before the underlying
+    // number actually reaches a full binary megabyte.
+    private const double NetworkMBThresholdKBs = 1024;
+
+    public string NetworkDownValueText => FormatNetworkRateValue(NetworkDownKBs);
+    public string NetworkDownUnitText => FormatNetworkRateUnit(NetworkDownKBs);
+    public string NetworkUpValueText => FormatNetworkRateValue(NetworkUpKBs);
+    public string NetworkUpUnitText => FormatNetworkRateUnit(NetworkUpKBs);
+
+    private static string FormatNetworkRateValue(double kbPerSecond) => kbPerSecond >= NetworkMBThresholdKBs
+        ? (kbPerSecond / NetworkMBThresholdKBs).ToString("0.0", CultureInfo.InvariantCulture)
+        : kbPerSecond.ToString("0.0", CultureInfo.InvariantCulture);
+
+    private static string FormatNetworkRateUnit(double kbPerSecond) => kbPerSecond >= NetworkMBThresholdKBs ? "MB/s" : "KB/s";
 
     // ---- Headphone status ----
 
@@ -184,54 +214,57 @@ public partial class NotchViewModel : ObservableObject
     public bool IsShelfEmpty => ShelfItems.Count == 0;
 
     public bool IsMediaTabSelected => SelectedTab == "Media";
-    public bool IsAiTabSelected => SelectedTab == "Ai";
     public bool IsVitalsTabSelected => SelectedTab == "Vitals";
+    public bool IsNetworkTabSelected => SelectedTab == "Network";
     public bool IsShelfTabSelected => SelectedTab == "Shelf";
 
-    // The footprint every tab but AI shares. AI's own ceiling can run
-    // taller (see MaxAiTabHeight below, and MainWindow's MeasureAiTabHeight
-    // — the actual per-tab height math lives there now, not here, because
-    // it needs real WPF layout measurement rather than a guessed row-height
-    // constant; see that method's doc for why). The window itself is sized
-    // to MaxWindowHeight, once, at startup, and never resized again — see
-    // MainWindow's class doc for why. Every smaller state just animates
-    // Shell within that fixed window.
+    // MaxNotchWidth: every tab shares this expanded width, always — only
+    // height varies per tab. The window itself is sized to MaxWindowHeight,
+    // once, at startup, and never resized again — see MainWindow's class
+    // doc for why. Every smaller state just animates Shell within that
+    // fixed window.
     public const double MaxNotchWidth = 440;
-    public const double MaxNotchHeight = 280;
 
     public double NotchWidth => IsExpanded ? MaxNotchWidth : 240;
 
-    // How far past MaxNotchHeight the AI tab is allowed to grow for a long
-    // session list (see MainWindow's MeasureAiTabHeight) before its session
-    // list's own ScrollViewer takes back over — a safety net for a runaway
-    // session count, not a value real content is expected to reach.
-    public const double MaxAiTabHeight = 600;
+    // Floor and ceiling for MainWindow.MeasureExpandedContentHeight — every
+    // expanded tab measures its *own* real content height now (a flat
+    // MaxNotchHeight=280 for every tab regardless of content used to sit
+    // here instead, which is exactly what produced a huge empty gap below
+    // a short tab like Network's speed-only content; see that method's doc
+    // for the measurement itself). MinExpandedContentHeight is a safety
+    // floor only — comfortably below any real tab's natural minimum
+    // (Network's, the shortest, measures upward of 180px even with just
+    // its two speed tiles), it exists so a pathological/empty measurement
+    // can't collapse the flyout to something broken-looking rather than
+    // because any real tab is expected to need it.
+    public const double MinExpandedContentHeight = 150;
+
+    // How far past a tab's own natural content height any tab is still
+    // allowed to grow (see MainWindow's MeasureExpandedContentHeight)
+    // before its own ScrollViewer (Shelf's, if it ever holds enough chips)
+    // takes back over — a safety net for runaway content, not a value real
+    // content is expected to reach.
+    public const double MaxExpandedContentHeight = 600;
 
     /// <summary>
     /// The tallest footprint any single tab can ever need when expanded —
-    /// currently AI's own ceiling. This is what the real OS window reserves
+    /// MaxExpandedContentHeight. This is what the real OS window reserves
     /// once at startup (see MainWindow's PositionWindowAtMaxSize); every
-    /// shorter tab just leaves the rest of that reserved room empty.
+    /// shorter tab just leaves the rest of that reserved room empty
+    /// (invisible margin outside Shell's own current bounds — see
+    /// MainWindow's class doc for why the real window is never natively
+    /// resized to match).
     /// </summary>
-    public const double MaxWindowHeight = MaxAiTabHeight;
+    public const double MaxWindowHeight = MaxExpandedContentHeight;
 
-    // Every non-AI expanded tab shares the same height, and it's
-    // MaxNotchHeight — the window is already permanently reserved tall
-    // enough for that (see MaxWindowHeight above), so there's no cost to
-    // Shell actually using all of it. A smaller shared constant (230) used
-    // to sit here instead, on the assumption every tab's content fit
-    // comfortably under it; the AI tab's two ring columns and the Vitals
-    // tab's rings + Download/Upload row actually run past that budget,
-    // hard-clipping their bottom edge against ShellContent's per-frame Clip
-    // geometry (see MainWindow's UpdateShellGeometry). Using the full
-    // reserved footprint removes that clipping and, as a side effect, means
-    // switching between two non-AI tabs never triggers a resize animation.
-    // AI itself is the one exception — MainWindow overrides this value with
-    // MeasureAiTabHeight's real measurement whenever AI is the selected,
-    // expanded tab, so this is only ever actually used as the AI tab's
-    // *fallback* (e.g. the very first frame, before a real measurement has
-    // run).
-    public double NotchHeight => !IsExpanded ? 34 : MaxNotchHeight;
+    /// <summary>
+    /// The collapsed pill's height only — MainWindow measures every
+    /// expanded tab's real content height directly off ExpandedPanel now
+    /// (see MeasureExpandedContentHeight) rather than reading this for the
+    /// expanded case, so this property only has one meaningful value left.
+    /// </summary>
+    public double NotchHeight => 34;
 
     public double NotchCornerRadius => IsExpanded ? 20 : 18;
 
@@ -276,43 +309,17 @@ public partial class NotchViewModel : ObservableObject
     [ObservableProperty]
     private BitmapImage? mediaThumbnail;
 
-    // ---- AI tab (Claude Code activity) ----
-
     /// <summary>
-    /// How many Claude Code sessions are currently running (see
-    /// ClaudeCodeActivityService) — this is what the status dot/text next
-    /// to the Claude avatar reflects. There's no reliable signal anywhere
-    /// for "is Claude actively generating a response right now" (an earlier
-    /// version faked that as an always-true IsWorking bool), so this reports
-    /// something real instead: whether Claude Code is open at all, and in
-    /// how many places.
+    /// The collapsed waveform's fill — a vibrant color sampled from
+    /// <see cref="MediaThumbnail"/> (see MediaService.ExtractAccentColor),
+    /// so the bars draw from the album art instead of a flat white. A new
+    /// frozen brush is built on every refresh rather than mutating one in
+    /// place: WPF bindings only react to the bound property itself
+    /// changing, not to a nested Color changing underneath an unchanged
+    /// Brush instance.
     /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasActiveClaudeSessions))]
-    [NotifyPropertyChangedFor(nameof(SessionStatusText))]
-    private int activeClaudeSessionCount;
-
-    public bool HasActiveClaudeSessions => ActiveClaudeSessionCount > 0;
-
-    public string SessionStatusText => ActiveClaudeSessionCount switch
-    {
-        0 => "Not running",
-        1 => "1 session",
-        _ => $"{ActiveClaudeSessionCount} sessions",
-    };
-
-    /// <summary>
-    /// One flat row per active Claude Code session — "Project - Session",
-    /// project name bold in the XAML, sorted by project so same-project
-    /// rows still land next to each other even without a group header.
-    /// Replaces the old Weekly/5-hour usage rings entirely (see
-    /// RefreshClaudeActivity), rather than being patched in alongside them.
-    /// Rebuilt wholesale on every refresh (Clear + re-Add) since this is
-    /// read-only derived status, not something the UI can edit like
-    /// ShelfItems — no need for the preserve-identity dance that collection
-    /// needs.
-    /// </summary>
-    public ObservableCollection<ClaudeSessionRow> SessionRows { get; } = new();
+    private Brush waveformBrush = FrozenBrush(Colors.White);
 
     // ---- Commands ----
 
@@ -359,10 +366,39 @@ public partial class NotchViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void RemoveShelfItem(ShelfItem item)
+    private async Task RemoveShelfItemAsync(ShelfItem item) => await RemoveShelfItemWithExitAnimationAsync(item.Path);
+
+    /// <summary>
+    /// Marks the chip at <paramref name="path"/> IsRemoving (ListItemEnterStyle
+    /// in MainWindow.xaml reacts with a fade+scale-out), waits out that
+    /// animation's own duration, then actually removes it and persists.
+    /// Re-locates by path at both ends rather than trusting a captured
+    /// ShelfItem instance/index — <see cref="ShelfItem"/> is a record, and
+    /// LoadShelfIconAsync can replace this exact item's record (a new
+    /// instance, structurally unequal to whatever was captured at call time)
+    /// with its resolved icon at any point during the 200ms this is
+    /// waiting; matching by path is immune to that race the way matching by
+    /// instance/structural-equality wouldn't be. Shared by
+    /// RemoveShelfItemCommand and PruneMissingShelfItems so both removal
+    /// paths animate the same way.
+    /// </summary>
+    private async Task RemoveShelfItemWithExitAnimationAsync(string path)
     {
-        ShelfItems.Remove(item);
-        PersistShelf();
+        var index = ShelfItems.ToList().FindIndex(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            return;
+        }
+
+        ShelfItems[index] = ShelfItems[index] with { IsRemoving = true };
+        await Task.Delay(ListItemExitDelay);
+
+        var current = ShelfItems.FirstOrDefault(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (current is not null)
+        {
+            ShelfItems.Remove(current);
+            PersistShelf();
+        }
     }
 
     /// <summary>
@@ -405,6 +441,14 @@ public partial class NotchViewModel : ObservableObject
         IsMediaPlaying = _mediaService.IsPlaying;
         MediaProgress = _mediaService.Progress;
         MediaThumbnail = _mediaService.Thumbnail;
+        WaveformBrush = FrozenBrush(_mediaService.ThumbnailAccentColor);
+    }
+
+    private static SolidColorBrush FrozenBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
     }
 
     private void RefreshPrivacyIndicators()
@@ -456,66 +500,24 @@ public partial class NotchViewModel : ObservableObject
     /// </summary>
     private void PruneMissingShelfItems()
     {
-        var missing = ShelfItems.Where(i => !File.Exists(i.Path) && !Directory.Exists(i.Path)).ToList();
-        if (missing.Count == 0)
+        // !i.IsRemoving so a chip already mid-exit-animation (the user just
+        // clicked its remove glyph) doesn't get a second removal kicked off
+        // by the next prune tick landing before the first one finishes.
+        var missingPaths = ShelfItems
+            .Where(i => !i.IsRemoving && !File.Exists(i.Path) && !Directory.Exists(i.Path))
+            .Select(i => i.Path)
+            .ToList();
+
+        foreach (var path in missingPaths)
         {
-            return;
-        }
-
-        foreach (var item in missing)
-        {
-            ShelfItems.Remove(item);
-        }
-
-        PersistShelf();
-    }
-
-    // A session whose transcript hasn't been touched in longer than this is
-    // "Idle" rather than "Active" — long enough that normal think/tool-call
-    // pauses between messages don't flicker a row idle mid-turn, short
-    // enough that closing the loop on a conversation reads as idle again
-    // within a couple of poll cycles.
-    private static readonly TimeSpan ActiveThreshold = TimeSpan.FromMinutes(2);
-
-    /// <summary>
-    /// Rebuilds the AI tab's session count and rows from scratch every
-    /// call — cheap for a handful of sessions, and simpler than trying to
-    /// diff the list in place for read-only derived status. Sorted by
-    /// project then start time (oldest first) so same-project rows land
-    /// together and the list doesn't reorder itself as sessions come and
-    /// go. Each row's SessionLabel prefers the session's real title
-    /// (DisplayTitle — what Claude Desktop's own sidebar shows, e.g.
-    /// "Vitals tab icon styling") over the auto-derived short name,
-    /// falling back only when a title hasn't been generated yet.
-    /// IsActive is just LastActivityUtc thresholded — see
-    /// ClaudeCodeActivityService for what that's actually measuring.
-    /// </summary>
-    private void RefreshClaudeActivity()
-    {
-        var sessions = _claudeCodeActivityService.GetSnapshot().Sessions;
-        ActiveClaudeSessionCount = sessions.Count;
-
-        var nowUtc = DateTime.UtcNow;
-        SessionRows.Clear();
-        foreach (var session in sessions
-                     .OrderBy(s => s.ProjectName, StringComparer.OrdinalIgnoreCase)
-                     .ThenBy(s => s.StartedAtUtc))
-        {
-            var sessionLabel = string.IsNullOrWhiteSpace(session.DisplayTitle) ? session.Name : session.DisplayTitle;
-            var isInteractive = string.Equals(session.Kind, "interactive", StringComparison.OrdinalIgnoreCase);
-            var isActive = nowUtc - session.LastActivityUtc < ActiveThreshold;
-            SessionRows.Add(new ClaudeSessionRow(
-                session.ProjectName,
-                sessionLabel,
-                FormatSessionDuration(nowUtc - session.StartedAtUtc),
-                isActive,
-                isInteractive ? null : session.Kind));
+            _ = RemoveShelfItemWithExitAnimationAsync(path);
         }
     }
 
-    private static string FormatSessionDuration(TimeSpan elapsed) => elapsed.TotalHours >= 1
-        ? $"{(int)elapsed.TotalHours}h {elapsed.Minutes}m"
-        : $"{Math.Max(1, (int)elapsed.TotalMinutes)}m"; // never show "0m" for a session that just started
+    // Matches the exit DataTrigger's Duration in ListItemEnterStyle
+    // (MainWindow.xaml) — see that Style's own comment for why this can't
+    // just be one shared constant. Used when a Shelf chip is removed.
+    private static readonly TimeSpan ListItemExitDelay = TimeSpan.FromMilliseconds(200);
 
     private void RunOnUi(Action action)
     {

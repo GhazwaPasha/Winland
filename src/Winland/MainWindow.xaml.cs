@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -19,9 +20,10 @@ namespace Winland;
 /// footprint (<see cref="NotchViewModel.MaxNotchWidth"/> ×
 /// <see cref="NotchViewModel.MaxWindowHeight"/>) exactly once at startup and
 /// never natively resized or repositioned again — expand/collapse and tab
-/// switches (including the AI tab growing taller for a long session list —
-/// see <see cref="MeasureAiTabHeight"/>) are *purely* a Shell property
-/// Storyboard from then on.
+/// switches (each expanded tab sized to its own real content height, not
+/// one flat height shared by every tab — see
+/// <see cref="MeasureExpandedContentHeight"/>) are *purely* a Shell
+/// property Storyboard from then on.
 ///
 /// An earlier version kept the OS window snapped to Shell's exact current
 /// size instead (so there was never an invisible margin that could swallow
@@ -63,13 +65,31 @@ public partial class MainWindow : Window
     private const int WM_MOUSEACTIVATE = 0x0021;
     private const nint MA_NOACTIVATE = 3;
 
+    // Vitals ring reveal/live-update timings — see the notch design audit,
+    // §07. 80ms apart (CPU -> Memory -> Disk -> GPU) rather than a fixed
+    // TimeSpan.FromMilliseconds(80) literal at each call site, so the
+    // stagger is one number to tune, not four.
+    private static readonly TimeSpan RingRevealDuration = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan RingRevealStagger = TimeSpan.FromMilliseconds(80);
+    private static readonly TimeSpan RingLiveUpdateDuration = TimeSpan.FromMilliseconds(300);
+
+    // True once the Vitals tab's rings have played their empty-to-value
+    // sweep for the *current* time it's been open — reset back to false the
+    // moment the tab is switched away from, so re-opening it always replays
+    // the reveal rather than only ever happening once per app launch. Also
+    // gates the live-update path below: a CpuDashOffset change that arrives
+    // before the reveal has actually started has nothing to retarget yet.
+    private bool _vitalsRingsRevealed;
+
     private readonly NotchViewModel _viewModel;
+    private readonly SettingsViewModel _settingsViewModel;
     private readonly KeySpline _collapseEasing = new(0.2, 0.8, 0.2, 1.0); // matches the design's CSS cubic-bezier(.2,.8,.2,1)
     private readonly KeySpline _expandOutEasing = new(0.16, 1.0, 0.3, 1.0); // fast out to the overshoot point
     private readonly KeySpline _expandSettleEasing = new(0.45, 0.0, 0.55, 1.0); // ease back down from the overshoot to the real target
     private PinTopmostService? _pinTopmostService;
     private TaskbarIcon? _trayIcon;
     private MenuItem? _showHideMenuItem;
+    private SettingsWindow? _settingsWindow;
     private bool _trayVisible = true;
     private bool _loaded;
     private nint _hwnd;
@@ -77,9 +97,21 @@ public partial class MainWindow : Window
     private bool _shelfDragCandidate;
     private bool _lastIsFullscreen;
 
-    public MainWindow(NotchViewModel viewModel)
+    /// <summary>
+    /// <paramref name="startMinimized"/> is the persisted "Start minimized"
+    /// setting (SettingsWindow) — when true, this constructor still builds
+    /// the window and its tray icon exactly as normal, it just never calls
+    /// Show(), so WPF never creates the real HWND (and OnSourceInitialized's
+    /// pin/topmost/sizing setup never runs) until the user actually reveals
+    /// it from the tray. See ToggleTrayVisibility for the other half of this
+    /// — _trayVisible starts false to match, so the tray menu already reads
+    /// "Show" instead of "Hide".
+    /// </summary>
+    public MainWindow(NotchViewModel viewModel, SettingsViewModel settingsViewModel, bool startMinimized = false)
     {
         _viewModel = viewModel;
+        _settingsViewModel = settingsViewModel;
+        _trayVisible = !startMinimized;
         DataContext = viewModel;
         InitializeComponent();
 
@@ -92,30 +124,33 @@ public partial class MainWindow : Window
 
         _viewModel.PropertyChanged += (_, e) =>
         {
-            // IsAiTabSelected, not the raw SelectedTab — MeasureAiTabHeight
-            // needs the AI StackPanel's Visibility binding (in
-            // MainWindow.xaml, bound to IsAiTabSelected) to have already
-            // flipped to Visible before it measures, or it undercounts the
-            // AI tab's content (still Collapsed at that instant) and the
-            // notch ends up too short, clipping the header against Shell's
-            // own top edge. CommunityToolkit.Mvvm raises SelectedTab's own
-            // PropertyChanged *before* IsAiTabSelected's (SelectedTab sits
-            // above IsAiTabSelected in that ObservableProperty's
-            // NotifyPropertyChangedFor list), and WPF's bindings — wired up
-            // in InitializeComponent, before this handler is even attached
-            // — run ahead of this handler on whichever event they're
-            // actually listening to. So keying off IsAiTabSelected here
-            // (which fires on every SelectedTab change, same as SelectedTab
-            // itself) guarantees that specific Visibility flip has already
-            // happened by the time MeasureAiTabHeight runs.
+            // IsShelfTabSelected specifically, not SelectedTab and not just
+            // any of the four IsXTabSelected properties — every expanded
+            // tab measures its own real content height on switch (see
+            // MeasureExpandedContentHeight), so this needs to fire once per
+            // tab switch, after every tab panel's Visibility binding
+            // (MainWindow.xaml, each bound to its own IsXTabSelected) has
+            // actually updated, or it undercounts the newly-selected tab's
+            // content (still Collapsed at that instant) and the notch ends
+            // up too short, clipping the header against Shell's own top
+            // edge — the exact bug this whole approach exists to avoid.
+            // CommunityToolkit.Mvvm raises SelectedTab's own PropertyChanged
+            // first, then each NotifyPropertyChangedFor target in the order
+            // declared on `selectedTab` (Media, Vitals, Network, Shelf) —
+            // and WPF's bindings, wired up in InitializeComponent before
+            // this handler is even attached, run ahead of this handler on
+            // whichever specific property each one is listening to. So
+            // keying off IsShelfTabSelected — the *last* one in that list —
+            // guarantees every other panel's Visibility flip already
+            // happened earlier in this same synchronous notification
+            // sequence, not just the newly-selected one's.
             //
-            // ActiveClaudeSessionCount is here too so the notch grows/
-            // shrinks live if a session starts or ends while the AI tab is
-            // already the one open, rather than only re-measuring on the
-            // next tab switch — no Visibility race there since the AI
-            // panel's already Visible in that case.
-            if (e.PropertyName is nameof(NotchViewModel.IsExpanded) or nameof(NotchViewModel.IsAiTabSelected)
-                or nameof(NotchViewModel.ActiveClaudeSessionCount))
+            // The Shelf tab also gets live-resize below, off
+            // ShelfItems.CollectionChanged rather than a PropertyChanged
+            // name (it's a collection, not a property) — so dropping or
+            // removing a file while Shelf is already open re-measures too,
+            // not just on the next tab switch.
+            if (e.PropertyName is nameof(NotchViewModel.IsExpanded) or nameof(NotchViewModel.IsShelfTabSelected))
             {
                 UpdateShellSize(animate: true);
             }
@@ -130,6 +165,74 @@ public partial class MainWindow : Window
             if (e.PropertyName == nameof(NotchViewModel.IsPinned))
             {
                 ApplyTopmostState();
+            }
+
+            if (e.PropertyName == nameof(NotchViewModel.IsVitalsTabSelected))
+            {
+                if (_viewModel.IsVitalsTabSelected)
+                {
+                    RevealVitalsRings();
+                }
+                else
+                {
+                    // Re-opening the tab later should sweep in from empty
+                    // again, not just resume wherever the numbers happen to
+                    // be — see _vitalsRingsRevealed's own doc comment.
+                    _vitalsRingsRevealed = false;
+                }
+            }
+
+            // Only while the tab is both open and past its initial reveal —
+            // a DashOffset change that arrives while the tab isn't visible
+            // has nothing on screen to animate, and one that arrives before
+            // RevealVitalsRings has run yet would just be racing it.
+            if (_viewModel.IsVitalsTabSelected && _vitalsRingsRevealed)
+            {
+                switch (e.PropertyName)
+                {
+                    case nameof(NotchViewModel.CpuDashOffset):
+                        AnimateRingLiveUpdate(CpuRing, _viewModel.CpuDashOffset);
+                        break;
+                    case nameof(NotchViewModel.RamDashOffset):
+                        AnimateRingLiveUpdate(RamRing, _viewModel.RamDashOffset);
+                        break;
+                    case nameof(NotchViewModel.DiskDashOffset):
+                        AnimateRingLiveUpdate(DiskRing, _viewModel.DiskDashOffset);
+                        break;
+                    case nameof(NotchViewModel.GpuDashOffset):
+                        AnimateRingLiveUpdate(GpuRing, _viewModel.GpuDashOffset);
+                        break;
+                }
+            }
+
+            // MediaTitle only actually changes (CommunityToolkit's
+            // [ObservableProperty] setters no-op on an unchanged value) on a
+            // genuine new track — MediaChanged fires far more often than
+            // that (roughly once a second, from playback-position ticks),
+            // but re-setting MediaTitle to the same string along the way
+            // never raises this, so this only ever fires on a real track
+            // change, not every tick.
+            if (e.PropertyName == nameof(NotchViewModel.MediaTitle))
+            {
+                AnimateMediaTrackChange();
+            }
+
+            if (e.PropertyName == nameof(NotchViewModel.MediaProgress))
+            {
+                AnimateMediaProgress(_viewModel.MediaProgress);
+            }
+
+        };
+
+        // Live-resize while the Shelf tab is already open — otherwise a
+        // file dropped (or a chip removed) while Shelf is the visible tab
+        // wouldn't be reflected in Shell's height until the next tab
+        // switch happened to re-measure it.
+        _viewModel.ShelfItems.CollectionChanged += (_, _) =>
+        {
+            if (_viewModel.IsShelfTabSelected)
+            {
+                UpdateShellSize(animate: true);
             }
         };
 
@@ -161,6 +264,16 @@ public partial class MainWindow : Window
         PositionWindowAtMaxSize();
         UpdateShellSize(animate: false);
         UpdateWaveformAnimation();
+
+        // MediaProgressBar's Value is entirely code-behind-owned now (see
+        // AnimateMediaProgress) rather than a live Binding — without this,
+        // whatever MediaProgress already was by the time RefreshMedia() ran
+        // in NotchViewModel's constructor (well before this window, or this
+        // handler, existed) would sit unreflected at the XAML-declared 0
+        // until the next genuine position tick happened to arrive.
+        MediaProgressBar.Value = _viewModel.MediaProgress;
+        _lastMediaProgressTarget = _viewModel.MediaProgress;
+
         _loaded = true;
     }
 
@@ -226,16 +339,24 @@ public partial class MainWindow : Window
     /// SetWindowPos call combining move+resize (rather than separately
     /// setting Width/Height/Left/Top, each of which is its own immediate
     /// native call under the hood) so there's no intermediate state for
-    /// anything to observe even at startup. Height reserves
-    /// MaxWindowHeight, not the shorter MaxNotchHeight every other tab
-    /// uses — the AI tab can grow past that for a long session list (see
-    /// <see cref="MeasureAiTabHeight"/>), and since this window is never
-    /// natively resized again, whatever room isn't reserved here now is
-    /// never available later.
+    /// anything to observe even at startup. Height reserves MaxWindowHeight
+    /// — every tab's own natural content height (see
+    /// <see cref="MeasureExpandedContentHeight"/>) is smaller than that in
+    /// the common case, sometimes much smaller, but since this window is
+    /// never natively resized again, whatever room isn't reserved here now
+    /// is never available later if some tab's content ever does grow to
+    /// need it.
     /// </summary>
     private void PositionWindowAtMaxSize()
     {
-        var left = (SystemParameters.PrimaryScreenWidth - NotchViewModel.MaxNotchWidth) / 2;
+        // Clamped to 0 rather than left to go negative: on a primary display
+        // narrower than MaxNotchWidth (rare, but possible — a small secondary
+        // panel repurposed as primary, an unusual low-res remote session),
+        // the unclamped centering math pushes the window left of the screen
+        // origin, and since this window is never natively repositioned again
+        // (see the class doc), that would leave the notch permanently
+        // unreachable rather than just off-center for one session.
+        var left = Math.Max(0, (SystemParameters.PrimaryScreenWidth - NotchViewModel.MaxNotchWidth) / 2);
 
         var dpi = VisualTreeHelper.GetDpi(this);
         var x = (int)Math.Round(left * dpi.DpiScaleX);
@@ -302,9 +423,7 @@ public partial class MainWindow : Window
     private void UpdateShellSize(bool animate)
     {
         var width = _viewModel.NotchWidth;
-        var height = _viewModel.IsExpanded && _viewModel.IsAiTabSelected
-            ? MeasureAiTabHeight()
-            : _viewModel.NotchHeight;
+        var height = _viewModel.IsExpanded ? MeasureExpandedContentHeight() : _viewModel.NotchHeight;
 
         if (!animate || !_loaded)
         {
@@ -316,13 +435,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Tab switches (and, for AI, session-count changes) go through this
-        // same path. Width never moves — every tab shares the same 440
-        // expanded width — and height usually doesn't either, since every
-        // tab but AI shares MaxNotchHeight too; only AI, and only once its
-        // session list actually needs more than that (see
-        // MeasureAiTabHeight), moves height here. Bail out entirely when
-        // neither dimension is actually moving, rather than kicking off a
+        // Tab switches (and, for Shelf, content-count changes) go
+        // through this same path. Width never moves — every tab shares the
+        // same 440 expanded width — but height now usually *does*: every
+        // expanded tab measures its own real content height (see
+        // MeasureExpandedContentHeight), so switching between two tabs with
+        // different natural heights (say, Network's two speed tiles vs.
+        // Shelf's file grid) animates a resize where it didn't when every
+        // tab shared one flat height. Bail out entirely when neither
+        // dimension is actually moving, rather than kicking off a
         // same-value animation for no visual change.
         var widthChanging = Math.Abs(Shell.ActualWidth - width) > 0.5;
         var heightChanging = Math.Abs(Shell.ActualHeight - height) > 0.5;
@@ -362,13 +483,16 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The AI tab's real target height — measured directly off
-    /// ExpandedPanel rather than predicted from a per-row pixel constant.
-    /// An earlier version tried to estimate this arithmetically (chrome
-    /// height + row count × an assumed row height) and it clipped in
-    /// practice: real Segoe UI line heights don't match a guessed round
-    /// number, so the estimate landed short of what the content actually
-    /// needed.
+    /// Whichever expanded tab is currently selected's real target height —
+    /// measured directly off ExpandedPanel rather than predicted from a
+    /// per-row pixel constant — every tab shared one flat MaxNotchHeight
+    /// regardless of how little content it actually had, which is exactly
+    /// what left a large empty gap below a short tab like Network's two
+    /// speed tiles. An earlier version tried to estimate this
+    /// arithmetically (chrome height + row count × an assumed row height)
+    /// and it clipped in practice: real Segoe UI line heights don't match
+    /// a guessed round number, so the estimate landed short of what the
+    /// content actually needed.
     ///
     /// Measuring with an infinite height constraint is what makes this
     /// exact instead of another guess: WPF's Grid sizes a Star row to its
@@ -376,24 +500,27 @@ public partial class MainWindow : Window
     /// (the same behavior Auto rows have — Star only means "share the
     /// leftover space" once there's a finite amount of it to share), so
     /// this Measure call reports ExpandedPanel's true natural height for
-    /// whichever tab is actually visible right now, including the
-    /// session list's real rendered row heights, the header, the tab bar,
-    /// and every margin — no separate constants to keep in sync with the
-    /// XAML at all.
+    /// whichever tab is actually visible right now, including the header,
+    /// the tab bar, and every margin — no separate constants to keep in
+    /// sync with the XAML at all.
     ///
     /// This only touches Measure, never Arrange, so it doesn't affect
     /// what's on screen — WPF's normal layout pass re-measures
     /// ExpandedPanel for real once Shell.Width/Height (set right after
-    /// this returns) actually change. Clamped to MaxAiTabHeight purely as
-    /// the runaway-session-count safety net described on that constant;
-    /// past it, the session list's ScrollViewer (MainWindow.xaml, no
-    /// MaxHeight of its own) takes back over, since it scrolls automatically
-    /// the moment it's arranged with less room than its content wants.
+    /// this returns) actually change. Clamped to MaxExpandedContentHeight
+    /// purely as a runaway-content safety net (e.g. the Shelf's file grid,
+    /// if it ever holds a lot of chips); past it, that tab's own
+    /// ScrollViewer (MainWindow.xaml, no MaxHeight of its own) takes back
+    /// over, since it scrolls automatically the moment it's arranged with
+    /// less room than its content wants. MinExpandedContentHeight is a
+    /// much smaller floor purely against a pathological/empty measurement
+    /// — see its own doc comment for why no real tab is expected to need
+    /// it.
     /// </summary>
-    private double MeasureAiTabHeight()
+    private double MeasureExpandedContentHeight()
     {
         ExpandedPanel.Measure(new Size(NotchViewModel.MaxNotchWidth, double.PositiveInfinity));
-        return Math.Clamp(ExpandedPanel.DesiredSize.Height, NotchViewModel.MaxNotchHeight, NotchViewModel.MaxAiTabHeight);
+        return Math.Clamp(ExpandedPanel.DesiredSize.Height, NotchViewModel.MinExpandedContentHeight, NotchViewModel.MaxExpandedContentHeight);
     }
 
     /// <summary>
@@ -417,6 +544,7 @@ public partial class MainWindow : Window
         BuildShellGeometry(width, height, _viewModel.NotchCornerRadius, out var fill, out var stroke);
         ShellFillPath.Data = fill;
         ShellStrokePath.Data = stroke;
+        ShellDragHighlightPath.Data = stroke;
         ShellContent.Clip = fill;
     }
 
@@ -504,6 +632,114 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// The Vitals tab's "rings before we show actual things" reveal (see the
+    /// notch design audit, §07): each ring sweeps from empty to its current
+    /// value over <see cref="RingRevealDuration"/>, staggered
+    /// <see cref="RingRevealStagger"/> apart left to right (CPU, Memory,
+    /// Disk, GPU) via each animation's own BeginTime. Reads the target
+    /// straight off the view model's own *DashOffset properties rather than
+    /// re-deriving them here, so this and the live-update path below always
+    /// animate toward the exact same number the (now unbound) XAML would
+    /// have shown.
+    /// </summary>
+    private void RevealVitalsRings()
+    {
+        _vitalsRingsRevealed = true;
+        AnimateRingReveal(CpuRing, _viewModel.CpuDashOffset, stagger: 0);
+        AnimateRingReveal(RamRing, _viewModel.RamDashOffset, stagger: 1);
+        AnimateRingReveal(DiskRing, _viewModel.DiskDashOffset, stagger: 2);
+        AnimateRingReveal(GpuRing, _viewModel.GpuDashOffset, stagger: 3);
+    }
+
+    private void AnimateRingReveal(Ellipse ring, double targetDashOffset, int stagger)
+    {
+        var animation = new DoubleAnimation
+        {
+            From = _viewModel.VitalsRingCircumference, // full offset = empty ring, see DoubleToDashArrayConverter's doc comment
+            To = targetDashOffset,
+            BeginTime = TimeSpan.FromMilliseconds(RingRevealStagger.TotalMilliseconds * stagger),
+            Duration = RingRevealDuration,
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        };
+        ring.BeginAnimation(Shape.StrokeDashOffsetProperty, animation);
+    }
+
+    /// <summary>
+    /// A later poll tick's new value, once the tab is already open and past
+    /// its reveal — eases to the new DashOffset from wherever the ring
+    /// currently sits (no explicit From: a DoubleAnimation with none set
+    /// interpolates from the property's current effective value, including
+    /// one still mid-animation) rather than replaying the full staggered
+    /// sweep on every tick.
+    /// </summary>
+    private void AnimateRingLiveUpdate(Ellipse ring, double targetDashOffset)
+    {
+        var animation = new DoubleAnimation
+        {
+            To = targetDashOffset,
+            Duration = RingLiveUpdateDuration,
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        };
+        ring.BeginAnimation(Shape.StrokeDashOffsetProperty, animation);
+    }
+
+    // Reveal-tier timing (see the notch design audit, §07) shared by the
+    // Media-track and Network-identity transitions below.
+    private static readonly TimeSpan ContentFadeInDuration = TimeSpan.FromMilliseconds(180);
+
+    // A position tick this size or larger is a seek or a track change, not
+    // organic playback — snap instead of gliding the bar across most of its
+    // length. Ordinary ~1s ticks move it a fraction of a percent even on a
+    // short track, so this never mistakes real playback for a jump.
+    private const double MediaProgressSeekThreshold = 0.15;
+    private double _lastMediaProgressTarget;
+
+    /// <summary>
+    /// Fades MediaThumbnailGrid/MediaTitleText/MediaArtistText in on a real
+    /// track change — snaps to Opacity 0 first (the bound content has
+    /// already changed underneath by the time this runs; there's nothing to
+    /// crossfade *from*, only something to reveal) rather than animating
+    /// down from 1, which would show the new track's info for the entire
+    /// fade-out half before the fade-in even started.
+    /// </summary>
+    private void AnimateMediaTrackChange()
+    {
+        var animation = FadeInFromZero();
+        MediaThumbnailGrid.BeginAnimation(UIElement.OpacityProperty, animation);
+        MediaTitleText.BeginAnimation(UIElement.OpacityProperty, animation);
+        MediaArtistText.BeginAnimation(UIElement.OpacityProperty, animation);
+    }
+
+    private static DoubleAnimationUsingKeyFrames FadeInFromZero()
+    {
+        var animation = new DoubleAnimationUsingKeyFrames();
+        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        animation.KeyFrames.Add(new SplineDoubleKeyFrame(1, KeyTime.FromTimeSpan(ContentFadeInDuration), new KeySpline(0.2, 0.8, 0.2, 1)));
+        return animation;
+    }
+
+    /// <summary>
+    /// Eases MediaProgressBar toward a new position-tick value instead of
+    /// the plain Binding this used to be — see MediaProgressSeekThreshold's
+    /// own comment for why a large jump snaps instead of gliding.
+    /// </summary>
+    private void AnimateMediaProgress(double target)
+    {
+        var jumped = Math.Abs(target - _lastMediaProgressTarget) > MediaProgressSeekThreshold;
+        _lastMediaProgressTarget = target;
+
+        if (jumped)
+        {
+            MediaProgressBar.BeginAnimation(RangeBase.ValueProperty, null);
+            MediaProgressBar.Value = target;
+            return;
+        }
+
+        var animation = new DoubleAnimation { To = target, Duration = TimeSpan.FromMilliseconds(900) };
+        MediaProgressBar.BeginAnimation(RangeBase.ValueProperty, animation);
+    }
+
+    /// <summary>
     /// Starts (or stops) the four looping bar animations behind the
     /// collapsed "now playing" waveform. Each bar gets its own out-of-phase
     /// keyframe pattern so the group reads as an equalizer reacting to
@@ -561,22 +797,48 @@ public partial class MainWindow : Window
         _viewModel.TogglePinCommand.Execute(null);
     }
 
+    private void SettingsIcon_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        OpenSettingsWindow();
+    }
+
+    /// <summary>
+    /// Lazily creates SettingsWindow once and re-shows/activates that same
+    /// instance on every later click — same single-instance idea as
+    /// _trayIcon above, so repeatedly clicking the gear can't stack up
+    /// several settings windows. Cleared back to null on Closed so a later
+    /// click after the user closes it builds a fresh one rather than trying
+    /// to resurrect a disposed window.
+    /// </summary>
+    private void OpenSettingsWindow()
+    {
+        if (_settingsWindow is null)
+        {
+            _settingsWindow = new SettingsWindow(_settingsViewModel);
+            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        }
+
+        _settingsWindow.Show();
+        _settingsWindow.Activate();
+    }
+
     private void MediaTab_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
         _viewModel.SelectTabCommand.Execute("Media");
     }
 
-    private void AiTab_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        e.Handled = true;
-        _viewModel.SelectTabCommand.Execute("Ai");
-    }
-
     private void VitalsTab_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
         _viewModel.SelectTabCommand.Execute("Vitals");
+    }
+
+    private void NetworkTab_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        _viewModel.SelectTabCommand.Execute("Network");
     }
 
     private void ShelfTab_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -641,6 +903,8 @@ public partial class MainWindow : Window
 
     // ---- Shelf drag-in (files dropped onto the notch from Explorer/desktop) ----
 
+    private static readonly TimeSpan DragHighlightFadeDuration = TimeSpan.FromMilliseconds(150);
+
     private void Shell_DragEnter(object sender, DragEventArgs e)
     {
         if (!e.Data.GetDataPresent(DataFormats.FileDrop))
@@ -656,6 +920,8 @@ public partial class MainWindow : Window
         // file works without navigating there manually first.
         _viewModel.IsExpanded = true;
         _viewModel.SelectTabCommand.Execute("Shelf");
+
+        AnimateDragHighlight(visible: true);
     }
 
     private void Shell_DragOver(object sender, DragEventArgs e)
@@ -664,8 +930,27 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    // WPF fires DragLeave when the cursor leaves Shell's bounds mid-drag
+    // without dropping (the user changed their mind, or overshot) — without
+    // this the highlight would stay lit until some *later* unrelated drag
+    // happened to trigger Shell_Drop's fade-out, rather than clearing right
+    // when the drag actually left.
+    private void Shell_DragLeave(object sender, DragEventArgs e) => AnimateDragHighlight(visible: false);
+
+    private void AnimateDragHighlight(bool visible)
+    {
+        var animation = new DoubleAnimation
+        {
+            To = visible ? 1.0 : 0.0,
+            Duration = DragHighlightFadeDuration,
+        };
+        ShellDragHighlightPath.BeginAnimation(UIElement.OpacityProperty, animation);
+    }
+
     private void Shell_Drop(object sender, DragEventArgs e)
     {
+        AnimateDragHighlight(visible: false);
+
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths)
         {
             return;
@@ -714,15 +999,22 @@ public partial class MainWindow : Window
             // Falls back to the OS default glyph — not worth failing startup over.
         }
 
-        _showHideMenuItem = new MenuItem { Header = "Hide" };
+        // Header matches _trayVisible's starting value (see the constructor's
+        // startMinimized parameter) rather than always "Hide" — otherwise a
+        // start-minimized launch would show a menu that says "Hide" while
+        // the window is, in fact, already hidden.
+        _showHideMenuItem = new MenuItem { Header = _trayVisible ? "Hide" : "Show" };
         _showHideMenuItem.Click += (_, _) => ToggleTrayVisibility();
+
+        var settingsItem = new MenuItem { Header = "Settings" };
+        settingsItem.Click += (_, _) => OpenSettingsWindow();
 
         var exitItem = new MenuItem { Header = "Exit" };
         exitItem.Click += (_, _) => Application.Current.Shutdown();
 
         _trayIcon.ContextMenu = new ContextMenu
         {
-            Items = { _showHideMenuItem, new Separator(), exitItem },
+            Items = { _showHideMenuItem, settingsItem, new Separator(), exitItem },
         };
 
         _trayIcon.ForceCreate();

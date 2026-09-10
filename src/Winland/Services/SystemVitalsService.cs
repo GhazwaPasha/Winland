@@ -9,12 +9,21 @@ using Winland.Interop;
 namespace Winland.Services;
 
 /// <summary>
-/// Samples CPU/RAM/disk/GPU/network once a second for the Vitals tab. Unlike
-/// the OS-signal services elsewhere in this app (media, accent), none of
-/// these have a push/event API — they're all read-on-demand
-/// counters — so this owns its own timer and raises one <see cref="Changed"/>
-/// per tick, the same poll-and-diff shape <see cref="PrivacyIndicatorService"/>
-/// uses for the same reason.
+/// Samples CPU/RAM/disk/GPU/network once a second for the Vitals and
+/// Network tabs. Unlike the OS-signal services elsewhere in this app
+/// (media, accent), none of these have a push/event API — they're all
+/// read-on-demand counters — so this owns its own timer and raises one
+/// <see cref="Changed"/> per tick, the same poll-and-diff shape
+/// <see cref="PrivacyIndicatorService"/> uses for the same reason.
+///
+/// CPU/RAM/disk/GPU sample every tick regardless of what's on screen — Task
+/// Manager and this app's own Vitals ring reveal both assume that data is
+/// already fresh the instant the tab opens. Network is the one exception:
+/// <see cref="SetNetworkSamplingEnabled"/> gates it off by default, so the
+/// network-interface enumeration this needs only actually runs while the
+/// Network tab is the one currently open (see NotchViewModel) rather than
+/// continuously in the background regardless of whether anything's looking
+/// at it.
 /// </summary>
 public sealed class SystemVitalsService : ISystemVitalsService, IDisposable
 {
@@ -30,6 +39,13 @@ public sealed class SystemVitalsService : ISystemVitalsService, IDisposable
     private DateTime _lastNetworkSampleAt;
     private long _lastBytesReceived;
     private long _lastBytesSent;
+
+    // Off by default — "on demand" means no network sampling at all until
+    // something actually asks for it (NotchViewModel enables this while the
+    // Network tab is the open, expanded one). CPU/RAM/disk/GPU keep
+    // sampling every tick regardless; this only gates the network half of
+    // Refresh() below.
+    private bool _networkSamplingEnabled;
 
     public SystemVitalsSnapshot Snapshot { get; private set; } = new(0, 0, 0, 0, 0, 0);
 
@@ -71,6 +87,28 @@ public sealed class SystemVitalsService : ISystemVitalsService, IDisposable
         _timer.Start();
     }
 
+    public void SetNetworkSamplingEnabled(bool enabled)
+    {
+        if (enabled == _networkSamplingEnabled)
+        {
+            return;
+        }
+
+        _networkSamplingEnabled = enabled;
+
+        if (enabled)
+        {
+            // Reset the rate baseline to right now rather than whatever it
+            // was left at the last time this was enabled — otherwise the
+            // first tick after re-enabling would average bytes transferred
+            // across the *entire* time it was off (could be minutes), not
+            // the last second, producing one wildly wrong spike or trough
+            // instead of a clean first reading.
+            (_lastBytesReceived, _lastBytesSent) = ReadNetworkTotals();
+            _lastNetworkSampleAt = DateTime.UtcNow;
+        }
+    }
+
     private void Refresh()
     {
         double cpu = 0, ram = 0, disk = 0, gpu = 0, down = 0, up = 0;
@@ -87,7 +125,7 @@ public sealed class SystemVitalsService : ISystemVitalsService, IDisposable
         try { gpu = ReadGpuPercent(); }
         catch { }
 
-        try { (down, up) = ReadNetworkRatesKBs(); }
+        try { (down, up) = _networkSamplingEnabled ? ReadNetworkRatesKBs() : (0, 0); }
         catch { }
 
         Snapshot = new SystemVitalsSnapshot(cpu, ram, disk, gpu, down, up);
