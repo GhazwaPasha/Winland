@@ -34,7 +34,7 @@
   <Identity
     Name="PashaFoundry.Wisland"
     Publisher="CN=ACA19620-2C81-4D92-848A-301F3950E48A"
-    Version="1.0.0.0"
+    Version="1.1.0.0"
     ProcessorArchitecture="x64" />
 
   <Properties>

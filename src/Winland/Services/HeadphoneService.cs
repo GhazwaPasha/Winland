@@ -1,13 +1,14 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Threading;
 using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 using Windows.Devices.Enumeration.Pnp;
 
 namespace Winland.Services;
 
 /// <summary>
-/// Polls the default audio render endpoint to tell whether headphones are
+/// Tracks the default audio render endpoint to tell whether headphones are
 /// the current output, and — for a Bluetooth pair — their battery %.
 ///
 /// Two things worth recording since neither was obvious going in:
@@ -29,12 +30,18 @@ namespace Winland.Services;
 /// compatibility guarantee from Microsoft.</item>
 /// </list>
 ///
-/// Like <see cref="PrivacyIndicatorService"/> and <see cref="SystemVitalsService"/>,
-/// this polls on its own timer rather than subscribing to a change event —
-/// consistent with how this app handles every signal that has no clean
-/// push API, and it sidesteps needing to register/unregister a native
-/// endpoint-notification callback for a once-every-couple-seconds signal
-/// that doesn't need to be instant.
+/// Connection state is event-driven: an IMMNotificationClient is registered
+/// on the audio endpoint enumerator, so plugging in / pairing / switching
+/// the default output refreshes within a fraction of a second, with no
+/// polling at all. Battery % is the one piece Windows doesn't announce — it's
+/// re-read on a slow timer (which also doubles as a backstop should an
+/// endpoint notification ever be missed). Both used to be a 2-second poll
+/// that enumerated every PnP device on the machine while a Bluetooth headset
+/// was connected.
+///
+/// Everything here, including the first read at startup, runs on the thread
+/// pool — <see cref="Changed"/> is raised from there and consumers marshal
+/// to the UI thread themselves (NotchViewModel does).
 /// </summary>
 public sealed class HeadphoneService : IHeadphoneService, IDisposable
 {
@@ -51,43 +58,89 @@ public sealed class HeadphoneService : IHeadphoneService, IDisposable
 
     private const string BatteryPropertyKey = "{104ea319-6ee2-4701-bd47-8ddbf425bbe5} 2";
     private const string NamePropertyKey = "System.ItemNameDisplay";
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
 
-    private readonly MMDeviceEnumerator _enumerator = new();
-    private readonly DispatcherTimer _timer;
+    // Battery % has no change notification; this is also the safety-net
+    // refresh for the (event-driven) connection state.
+    private static readonly TimeSpan BatteryPollInterval = TimeSpan.FromSeconds(30);
 
-    public HeadphoneSnapshot Snapshot { get; private set; } = new(false, false, null);
+    // Endpoint notifications arrive in bursts (a single connect fires
+    // several) and on a COM callback thread that must not re-enter COM —
+    // so they only nudge this short debounce timer, and the refresh itself
+    // runs later on a pool thread.
+    private static readonly TimeSpan EventDebounce = TimeSpan.FromMilliseconds(400);
+
+    private readonly SemaphoreSlim _refreshLock = new(1, 1);
+    private readonly Timer _debounceTimer;
+    private readonly Timer _pollTimer;
+    private readonly EndpointNotificationClient _notificationClient;
+    private MMDeviceEnumerator? _enumerator;
+    private volatile bool _disposed;
+    private HeadphoneSnapshot _snapshot = new(false, false, null);
+
+    public HeadphoneSnapshot Snapshot => Volatile.Read(ref _snapshot);
 
     public event EventHandler? Changed;
 
     public HeadphoneService()
     {
-        _ = RefreshAsync();
+        _debounceTimer = new Timer(_ => _ = RefreshAsync(), null, Timeout.Infinite, Timeout.Infinite);
+        _pollTimer = new Timer(_ => _ = RefreshAsync(), null, Timeout.Infinite, Timeout.Infinite);
+        _notificationClient = new EndpointNotificationClient(() => _debounceTimer.Change(EventDebounce, Timeout.InfiniteTimeSpan));
 
-        _timer = new DispatcherTimer { Interval = PollInterval };
-        _timer.Tick += async (_, _) => await RefreshAsync();
-        _timer.Start();
+        // COM enumerator creation, callback registration and the first
+        // endpoint read all happen off the UI thread.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                _enumerator = new MMDeviceEnumerator();
+                _enumerator.RegisterEndpointNotificationCallback(_notificationClient);
+            }
+            catch
+            {
+                // No event source — the poll below still keeps state fresh, just slower.
+            }
+
+            await RefreshAsync();
+            if (!_disposed)
+            {
+                _pollTimer.Change(BatteryPollInterval, BatteryPollInterval);
+            }
+        });
     }
 
     private async Task RefreshAsync()
     {
-        HeadphoneSnapshot snapshot;
-        try
-        {
-            snapshot = await ComputeSnapshotAsync();
-        }
-        catch
-        {
-            snapshot = new HeadphoneSnapshot(false, false, null);
-        }
-
-        if (snapshot == Snapshot)
+        if (_disposed)
         {
             return;
         }
 
-        Snapshot = snapshot;
-        Changed?.Invoke(this, EventArgs.Empty);
+        await _refreshLock.WaitAsync();
+        try
+        {
+            HeadphoneSnapshot snapshot;
+            try
+            {
+                snapshot = await ComputeSnapshotAsync();
+            }
+            catch
+            {
+                snapshot = new HeadphoneSnapshot(false, false, null);
+            }
+
+            if (_disposed || snapshot == Snapshot)
+            {
+                return;
+            }
+
+            Volatile.Write(ref _snapshot, snapshot);
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
     }
 
     private async Task<HeadphoneSnapshot> ComputeSnapshotAsync()
@@ -95,7 +148,7 @@ public sealed class HeadphoneService : IHeadphoneService, IDisposable
         MMDevice device;
         try
         {
-            device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            device = (_enumerator ?? throw new InvalidOperationException("Audio enumerator not ready")).GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
         }
         catch
         {
@@ -191,7 +244,61 @@ public sealed class HeadphoneService : IHeadphoneService, IDisposable
 
     public void Dispose()
     {
-        _timer.Stop();
-        _enumerator.Dispose();
+        _disposed = true;
+        _debounceTimer.Dispose();
+        _pollTimer.Dispose();
+
+        try
+        {
+            _enumerator?.UnregisterEndpointNotificationCallback(_notificationClient);
+        }
+        catch
+        {
+            // Already gone — nothing to unregister.
+        }
+
+        _enumerator?.Dispose();
+    }
+
+    /// <summary>
+    /// Only the notifications that can change "are headphones the current
+    /// output" matter — property-value changes fire constantly (volume,
+    /// peak meters, ...) and are ignored.
+    /// </summary>
+    private sealed class EndpointNotificationClient : IMMNotificationClient
+    {
+        private readonly Action _onRelevantChange;
+
+        public EndpointNotificationClient(Action onRelevantChange) => _onRelevantChange = onRelevantChange;
+
+        public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
+        {
+            if (flow == DataFlow.Render)
+            {
+                Nudge();
+            }
+        }
+
+        public void OnDeviceAdded(string pwstrDeviceId) => Nudge();
+
+        public void OnDeviceRemoved(string deviceId) => Nudge();
+
+        public void OnDeviceStateChanged(string deviceId, DeviceState newState) => Nudge();
+
+        public void OnPropertyValueChanged(string pwstrDeviceId, PropertyKey key)
+        {
+        }
+
+        private void Nudge()
+        {
+            try
+            {
+                _onRelevantChange();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Service disposed while a notification was in flight.
+            }
+        }
     }
 }

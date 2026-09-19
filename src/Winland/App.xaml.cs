@@ -26,6 +26,7 @@ public partial class App : Application
 
     private MainWindow? _window;
     private IAccentColorService? _accentColorService;
+    private SingleInstanceGuard? _singleInstanceGuard;
 
     // Overrides the usual tint/accent panel logic entirely once on — see
     // ApplyAccentColors. Mirrors the settings window's own BlackMode
@@ -39,6 +40,20 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // First thing, before any service (media session, WASAPI, tray icon…)
+        // gets built — a second copy would otherwise fight the first over
+        // all of them and stack a second pill on top of the first.
+        _singleInstanceGuard = new SingleInstanceGuard();
+        if (!_singleInstanceGuard.IsPrimary)
+        {
+            _singleInstanceGuard.SignalPrimary();
+            Shutdown();
+            return;
+        }
+
+        _singleInstanceGuard.ListenForSecondLaunch(
+            () => Dispatcher.BeginInvoke(() => _window?.RevealFromSecondLaunch()));
 
         var mediaService = new MediaService();
         var privacyIndicatorService = new PrivacyIndicatorService();
@@ -92,6 +107,12 @@ public partial class App : Application
         {
             _window.Show();
         }
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        _singleInstanceGuard?.Dispose();
+        base.OnExit(e);
     }
 
     /// <summary>

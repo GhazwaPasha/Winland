@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -73,7 +72,7 @@ public sealed class StartupService : IStartupService
                 return;
             }
 
-            var exePath = Process.GetCurrentProcess().MainModule?.FileName;
+            var exePath = Environment.ProcessPath;
             if (string.IsNullOrEmpty(exePath))
             {
                 return;

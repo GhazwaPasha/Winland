@@ -93,8 +93,15 @@ that makes the shared free-tier rate limit a real risk.
    - Publisher display name: `Pasha Foundry`
    - (Reference only, not used in the manifest: Package Family Name
      `PashaFoundry.Wisland_0mq1c6mycnd66`, Store ID `9PB1J8CPDG8D`)
-3. ~~Build the packages~~ — done: `artifacts/msix/Wisland_1.0.0.0_x64.msix`
-   (78MB) and `..._arm64.msix` (74MB) are built and ready to upload. Rerun
+3. ~~Build the packages~~ — done. **Current update: 1.1.0.0**
+   (`artifacts/msix/Wisland_1.1.0.0_x64.msix` 84MB and `..._arm64.msix`
+   79MB) — single-instance guard, launch/idle performance work (see git
+   history), ReadyToRun compilation, and the earbud battery superscript.
+   The original submission was 1.0.0.0 (`..._1.0.0.0_*.msix`, kept alongside).
+   The Store requires every update's version to be higher than the last one
+   and reserves the fourth number, so bump the third (or second) number and
+   leave the last as `0` — set it in both `Package.appxmanifest` and the
+   `-PackageVersion` default in `build/Package-Msix.ps1`. Rerun
    `./build/Package-Msix.ps1` any time you need a fresh build (e.g. after
    bumping the version). Don't sign these yourself for submission — Partner
    Center signs uploaded packages with its own certificate; the script's

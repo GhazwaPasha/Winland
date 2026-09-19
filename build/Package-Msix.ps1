@@ -26,7 +26,7 @@
 
 .PARAMETER PackageVersion
     Four-part version, must match Identity/@Version in Package.appxmanifest
-    once you've filled that in. Defaults to 1.0.0.0.
+    once you've filled that in. Defaults to 1.1.0.0.
 
 .EXAMPLE
     ./build/Package-Msix.ps1
@@ -37,7 +37,7 @@ param(
     [ValidateSet('x64', 'arm64')]
     [string[]] $Architectures = @('x64', 'arm64'),
 
-    [string] $PackageVersion = '1.0.0.0',
+    [string] $PackageVersion = '1.1.0.0',
 
     [switch] $SignForLocalTesting
 )

@@ -17,6 +17,15 @@
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
 
+    <!-- Launch time. ReadyToRun ships precompiled native code alongside the IL
+         (publish only — `dotnet build` is unaffected), so startup doesn't spend
+         its first seconds JIT-compiling WPF/MVVM/WinRT code paths. Needs the
+         RuntimeIdentifier above, which is always set. TieredPGO adds
+         instrumentation overhead to hot methods for a payoff this small,
+         mostly-idle overlay never collects. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <TieredPGO>false</TieredPGO>
+
     <!-- MVVMTK0045 recommends partial properties (C# 13) over [ObservableProperty]
          fields for trimmed/NativeAOT WinRT components; this app is neither. -->
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>

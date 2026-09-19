@@ -15,7 +15,23 @@ public sealed class AppSettingsService : IAppSettingsService
     private static readonly string FilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Winland", "settings.json");
 
+    // Read from disk once, then served from memory — AppSettings is an
+    // immutable record and this app is single-instance (see
+    // SingleInstanceGuard), so nothing else can change the file underneath
+    // us. Load() is called from several places on every launch and on each
+    // settings toggle; each used to re-read and re-parse the file.
+    private readonly object _gate = new();
+    private AppSettings? _cached;
+
     public AppSettings Load()
+    {
+        lock (_gate)
+        {
+            return _cached ??= ReadFromDisk();
+        }
+    }
+
+    private static AppSettings ReadFromDisk()
     {
         try
         {
@@ -36,6 +52,13 @@ public sealed class AppSettingsService : IAppSettingsService
 
     public void Save(AppSettings settings)
     {
+        lock (_gate)
+        {
+            // Cached even if the write below fails — within this session the
+            // user's choice should still read back as what they set.
+            _cached = settings;
+        }
+
         try
         {
             var directory = Path.GetDirectoryName(FilePath);

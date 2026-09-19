@@ -48,10 +48,12 @@ public partial class NotchViewModel : ObservableObject
         _shelfStorageService = shelfStorageService;
         _appSettingsService = appSettingsService;
 
-        // Restore last session's pin state before anything else runs — this
-        // assignment does trigger OnIsPinnedChanged below and re-save the
-        // exact value it just loaded, a harmless no-op round-trip.
-        IsPinned = _appSettingsService.Load().IsPinned;
+        // Restore last session's pin state before anything else runs. Sets
+        // the backing field directly so OnIsPinnedChanged doesn't fire and
+        // write the value it just loaded straight back to disk on every
+        // launch — nothing is listening for this initial value anyway (the
+        // window attaches later and applies it itself in OnSourceInitialized).
+        isPinned = _appSettingsService.Load().IsPinned;
 
         _mediaService.MediaChanged += (_, _) => RunOnUi(RefreshMedia);
         _privacyIndicatorService.Changed += (_, _) => RunOnUi(RefreshPrivacyIndicators);
@@ -111,14 +113,17 @@ public partial class NotchViewModel : ObservableObject
             PruneMissingShelfItems();
         }
 
-        UpdateNetworkSamplingState();
+        UpdateSamplingState();
     }
 
-    /// <summary>Network throughput is sampled on demand (see ISystemVitalsService.SetNetworkSamplingEnabled) — only while the Network tab is both selected and actually visible, i.e. the notch is expanded.</summary>
-    partial void OnIsExpandedChanged(bool value) => UpdateNetworkSamplingState();
+    /// <summary>Vitals and network throughput are sampled on demand (see ISystemVitalsService) — only while their own tab is both selected and actually visible, i.e. the notch is expanded.</summary>
+    partial void OnIsExpandedChanged(bool value) => UpdateSamplingState();
 
-    private void UpdateNetworkSamplingState()
-        => _systemVitalsService.SetNetworkSamplingEnabled(IsExpanded && IsNetworkTabSelected);
+    private void UpdateSamplingState()
+    {
+        _systemVitalsService.SetVitalsSamplingEnabled(IsExpanded && IsVitalsTabSelected);
+        _systemVitalsService.SetNetworkSamplingEnabled(IsExpanded && IsNetworkTabSelected);
+    }
 
     [ObservableProperty]
     private bool isPinned = true;

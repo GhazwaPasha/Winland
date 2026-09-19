@@ -171,15 +171,13 @@ public partial class MainWindow : Window
             // whether the rings are "worth animating" right now, so this
             // one helper re-evaluates on either. See its own doc comment
             // for why every animation past this point is gated on
-            // IsExpanded — none of them were before, and it turned out
-            // CpuPercent/RamPercent/DiskPercent/GpuPercent update every
-            // second forever (SystemVitalsService never gates that
-            // sampling the way it now gates Network's), so four
-            // StrokeDashOffset animations were restarting every second
-            // whether or not the notch was even open, as long as Vitals
-            // happened to be the last-selected tab — a permanent background
-            // cost competing for the same frame budget as everything else,
-            // including the shell's own expand/collapse animation.
+            // IsExpanded — none of them were before, and back when
+            // SystemVitalsService sampled forever, four StrokeDashOffset
+            // animations restarted every second whether or not the notch
+            // was even open, as long as Vitals happened to be the
+            // last-selected tab. The service now only samples while the
+            // Vitals tab is on screen too, but this gate stays as the
+            // belt-and-braces half of that — the two are independent.
             if (e.PropertyName is nameof(NotchViewModel.IsExpanded) or nameof(NotchViewModel.IsVitalsTabSelected))
             {
                 UpdateVitalsRingRevealState();
@@ -1053,7 +1051,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+            var exePath = Environment.ProcessPath;
             if (exePath is not null)
             {
                 _trayIcon.Icon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
@@ -1083,6 +1081,21 @@ public partial class MainWindow : Window
         };
 
         _trayIcon.ForceCreate();
+    }
+
+    /// <summary>
+    /// Called when the user launches Winland a second time (see
+    /// SingleInstanceGuard). If the running copy is hidden in the tray
+    /// (Start minimized, or hidden via the tray menu), un-hide it so the
+    /// launch visibly does something; if it's already showing, the notch is
+    /// right there and there's nothing to do.
+    /// </summary>
+    public void RevealFromSecondLaunch()
+    {
+        if (!_trayVisible)
+        {
+            ToggleTrayVisibility();
+        }
     }
 
     private void ToggleTrayVisibility()

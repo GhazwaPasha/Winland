@@ -20,25 +20,32 @@
         <!-- Shared by the cam/mic status dots (collapsed + expanded, 4 total) — a
              slow breathing fade rather than a static dot, so an active indicator
              reads as "live" at a glance instead of looking like a painted-on icon.
-             Starts on Loaded rather than on Visibility becoming true: these dots
-             use Visibility="Collapsed" (not removed from the tree), so Loaded
-             fires once at window startup and the animation just runs continuously
-             underneath, invisible whenever the dot itself is collapsed. -->
+             Runs only while the dot is actually visible (IsVisible — false when
+             the dot or any ancestor is Collapsed): these dots use
+             Visibility="Collapsed" (not removed from the tree), and a
+             RepeatBehavior="Forever" storyboard started on Loaded used to keep
+             ticking invisibly at frame rate for the whole life of the app,
+             keeping the UI thread awake even when nothing was on screen. -->
         <Style x:Key="PulsingDotStyle" TargetType="Ellipse">
             <Style.Triggers>
-                <EventTrigger RoutedEvent="FrameworkElement.Loaded">
-                    <BeginStoryboard>
-                        <Storyboard RepeatBehavior="Forever">
-                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                             From="1.0" To="0.35" Duration="0:0:1.8"
-                                             AutoReverse="True">
-                                <DoubleAnimation.EasingFunction>
-                                    <SineEase EasingMode="EaseInOut" />
-                                </DoubleAnimation.EasingFunction>
-                            </DoubleAnimation>
-                        </Storyboard>
-                    </BeginStoryboard>
-                </EventTrigger>
+                <Trigger Property="IsVisible" Value="True">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard Name="PulseStoryboard">
+                            <Storyboard RepeatBehavior="Forever">
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                 From="1.0" To="0.35" Duration="0:0:1.8"
+                                                 AutoReverse="True">
+                                    <DoubleAnimation.EasingFunction>
+                                        <SineEase EasingMode="EaseInOut" />
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="PulseStoryboard" />
+                    </Trigger.ExitActions>
+                </Trigger>
             </Style.Triggers>
         </Style>
 
@@ -53,19 +60,24 @@
              was happening. -->
         <Style x:Key="PulsingOpacityStyle" TargetType="FrameworkElement">
             <Style.Triggers>
-                <EventTrigger RoutedEvent="FrameworkElement.Loaded">
-                    <BeginStoryboard>
-                        <Storyboard RepeatBehavior="Forever">
-                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                                             From="0.9" To="0.3" Duration="0:0:0.9"
-                                             AutoReverse="True">
-                                <DoubleAnimation.EasingFunction>
-                                    <SineEase EasingMode="EaseInOut" />
-                                </DoubleAnimation.EasingFunction>
-                            </DoubleAnimation>
-                        </Storyboard>
-                    </BeginStoryboard>
-                </EventTrigger>
+                <Trigger Property="IsVisible" Value="True">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard Name="PulseStoryboard">
+                            <Storyboard RepeatBehavior="Forever">
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                 From="0.9" To="0.3" Duration="0:0:0.9"
+                                                 AutoReverse="True">
+                                    <DoubleAnimation.EasingFunction>
+                                        <SineEase EasingMode="EaseInOut" />
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="PulseStoryboard" />
+                    </Trigger.ExitActions>
+                </Trigger>
             </Style.Triggers>
         </Style>
 
@@ -185,7 +197,7 @@
              and this one apply together) rather than duplicating the
              breathing-fade animation here. Deliberately does NOT also
              animate Opacity: PulsingDotStyle already owns a forever-looping
-             Opacity animation from the moment this element loads, and
+             Opacity animation while this element is visible, and
              starting a second Storyboard on the same property would hand off
              and permanently replace that loop the first time this dot
              appears (BeginStoryboard's default HandoffBehavior snapshots and
@@ -513,8 +525,12 @@
                         <Path Data="{StaticResource SurfaceEarbudsGeometry}" Stretch="Uniform" Width="16" Height="16"
                               Fill="{StaticResource NotchTextPrimaryBrush}"
                               Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource BoolToVis}}" />
-                        <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="11" Margin="4,0,0,0"
-                                   Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center"
+                        <!-- Battery % as a superscript on the icon (like X²): small, top-aligned,
+                             tucked right against the icon's top-right corner instead of
+                             sitting beside it at full size. -->
+                        <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="8" FontWeight="SemiBold"
+                                   Margin="1,-1,0,0"
+                                   Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Top"
                                    Visibility="{Binding HasHeadphoneBattery, Converter={StaticResource BoolToVis}}" />
                     </StackPanel>
 
@@ -657,8 +673,11 @@
                             <Path Data="{StaticResource SurfaceEarbudsGeometry}" Stretch="Uniform" Width="16" Height="16"
                                   Fill="{StaticResource NotchTextSecondaryBrush}"
                                   Visibility="{Binding IsHeadphoneWireless, Converter={StaticResource BoolToVis}}" />
-                            <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="11" Margin="4,0,0,0"
-                                       Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Center"
+                            <!-- Battery % as a superscript on the icon — same treatment as the
+                                 collapsed pill's copy above. -->
+                            <TextBlock Text="{Binding HeadphoneBatteryPercent, StringFormat={}{0}%}" FontSize="8" FontWeight="SemiBold"
+                                       Margin="1,-1,0,0"
+                                       Foreground="{StaticResource NotchTextSecondaryBrush}" VerticalAlignment="Top"
                                        Visibility="{Binding HasHeadphoneBattery, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
 

@@ -1,13 +1,15 @@
 using System;
-using System.Windows.Threading;
+using System.Runtime.InteropServices;
+using System.Threading;
 using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 
 namespace Winland.Services;
 
 /// <summary>
-/// Polls the same registry store Windows' own privacy dashboard reads to
-/// tell whether the microphone/camera are actively in use by *any* app
-/// system-wide — not just this one.
+/// Tells whether the microphone/camera are actively in use by *any* app
+/// system-wide — not just this one — by reading the same registry store
+/// Windows' own privacy dashboard reads.
 ///
 /// Under HKCU\...\CapabilityAccessManager\ConsentStore\&lt;device&gt;, every
 /// consumer that has ever requested the device gets its own leaf subkey:
@@ -17,32 +19,133 @@ namespace Winland.Services;
 /// actively open, and to a real FILETIME once it's released — "in use" is
 /// just "does any leaf currently read 0".
 ///
-/// There's no managed change-notification API for a registry *subtree*
-/// scan like this, so this polls on a timer rather than subscribing to an
-/// event — the same tradeoff AccentColorService makes wherever no real
-/// push signal exists.
+/// Instead of re-scanning that subtree every second, a dedicated background
+/// thread parks on RegNotifyChangeKeyValue for the whole ConsentStore
+/// subtree and only rescans when Windows actually writes something there
+/// (i.e. when a device is opened or released). A slow safety rescan still
+/// runs on a timeout in case a notification is ever missed, or the key
+/// doesn't exist yet (nothing has requested a device on this machine) and
+/// has to be retried. All of it — including the first scan at startup —
+/// stays off the UI thread; <see cref="Changed"/> is raised from that
+/// background thread and consumers marshal (NotchViewModel does).
 /// </summary>
 public sealed class PrivacyIndicatorService : IPrivacyIndicatorService, IDisposable
 {
     private const string ConsentStoreKeyPath = @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore";
     private const string NonPackagedSubKeyName = "NonPackaged";
     private const string LastUsedTimeStopValueName = "LastUsedTimeStop";
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan SafetyRescanInterval = TimeSpan.FromSeconds(15);
 
-    private readonly DispatcherTimer _timer;
+    private const uint RegNotifyChangeName = 0x1;
+    private const uint RegNotifyChangeLastSet = 0x4;
+    // Without this, the registration is tied to the registering thread and
+    // silently dies if that thread exits — harmless here (the watcher thread
+    // lives as long as the service) but it's the safer contract.
+    private const uint RegNotifyThreadAgnostic = 0x10000000;
 
-    public bool IsMicInUse { get; private set; }
-    public bool IsCameraInUse { get; private set; }
+    [DllImport("advapi32.dll")]
+    private static extern int RegNotifyChangeKeyValue(
+        SafeRegistryHandle hKey, [MarshalAs(UnmanagedType.Bool)] bool bWatchSubtree, uint dwNotifyFilter, SafeWaitHandle hEvent, [MarshalAs(UnmanagedType.Bool)] bool fAsynchronous);
+
+    private readonly ManualResetEvent _stop = new(false);
+    private readonly AutoResetEvent _registryChanged = new(false);
+    private readonly Thread _thread;
+
+    private volatile bool _isMicInUse;
+    private volatile bool _isCameraInUse;
+
+    public bool IsMicInUse => _isMicInUse;
+    public bool IsCameraInUse => _isCameraInUse;
 
     public event EventHandler? Changed;
 
     public PrivacyIndicatorService()
     {
-        Refresh();
+        _thread = new Thread(WatchLoop)
+        {
+            IsBackground = true,
+            Name = "Winland privacy watcher",
+        };
+        _thread.Start();
+    }
 
-        _timer = new DispatcherTimer { Interval = PollInterval };
-        _timer.Tick += (_, _) => Refresh();
-        _timer.Start();
+    private void WatchLoop()
+    {
+        WaitHandle[] handles = { _stop, _registryChanged };
+        RegistryKey? watchKey = null;
+
+        try
+        {
+            var needsRegistration = true;
+
+            while (true)
+            {
+                // The key stays open for the whole life of the thread: closing
+                // a key with a pending notification signals the event, which
+                // would wake the very next wait and spin this loop.
+                if (watchKey is null)
+                {
+                    watchKey = TryOpenConsentStore();
+                    needsRegistration = true;
+                }
+
+                // Registration is one-shot — re-arm it only after a change
+                // actually fired (or on a fresh key). Done *before* scanning,
+                // so a change landing between the scan and the wait isn't lost.
+                if (watchKey is not null && needsRegistration)
+                {
+                    needsRegistration = false;
+                    try
+                    {
+                        RegNotifyChangeKeyValue(
+                            watchKey.Handle,
+                            bWatchSubtree: true,
+                            RegNotifyChangeName | RegNotifyChangeLastSet | RegNotifyThreadAgnostic,
+                            _registryChanged.SafeWaitHandle,
+                            fAsynchronous: true);
+                    }
+                    catch
+                    {
+                        // Registration failing just leaves the timed safety rescan below doing the work.
+                    }
+                }
+
+                Refresh();
+
+                // Signalled by a registry change (rescan promptly), by Dispose
+                // (exit), or by the timeout (safety rescan / retry opening the key).
+                var signalled = WaitHandle.WaitAny(handles, SafetyRescanInterval);
+                if (signalled == 0)
+                {
+                    return;
+                }
+
+                if (signalled == 1)
+                {
+                    needsRegistration = true;
+                }
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // Disposed mid-wait — time to go.
+        }
+        finally
+        {
+            watchKey?.Dispose();
+        }
+    }
+
+    private static RegistryKey? TryOpenConsentStore()
+    {
+        try
+        {
+            return Registry.CurrentUser.OpenSubKey(ConsentStoreKeyPath);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void Refresh()
@@ -50,13 +153,13 @@ public sealed class PrivacyIndicatorService : IPrivacyIndicatorService, IDisposa
         var micInUse = IsDeviceInUse("microphone");
         var camInUse = IsDeviceInUse("webcam");
 
-        if (micInUse == IsMicInUse && camInUse == IsCameraInUse)
+        if (micInUse == _isMicInUse && camInUse == _isCameraInUse)
         {
             return;
         }
 
-        IsMicInUse = micInUse;
-        IsCameraInUse = camInUse;
+        _isMicInUse = micInUse;
+        _isCameraInUse = camInUse;
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -104,5 +207,11 @@ public sealed class PrivacyIndicatorService : IPrivacyIndicatorService, IDisposa
     private static bool IsLeafInUse(RegistryKey leafKey)
         => leafKey.GetValue(LastUsedTimeStopValueName) is long stop && stop == 0;
 
-    public void Dispose() => _timer.Stop();
+    public void Dispose()
+    {
+        _stop.Set();
+        _thread.Join(TimeSpan.FromMilliseconds(500));
+        _stop.Dispose();
+        _registryChanged.Dispose();
+    }
 }

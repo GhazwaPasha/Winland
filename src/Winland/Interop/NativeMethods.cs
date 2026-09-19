@@ -73,6 +73,17 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
 
+    /// <summary>
+    /// Cumulative idle/kernel/user CPU time across all cores, as 100ns FILETIME
+    /// ticks — the same source Task Manager's CPU graph uses. Kernel time
+    /// includes idle time, so busy% over an interval is
+    /// 1 - idleDelta / (kernelDelta + userDelta). Cheaper than a
+    /// PerformanceCounter, which drags in the whole perf-counter subsystem.
+    /// </summary>
+    [DllImport(Kernel32, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetSystemTimes(out ulong idleTime, out ulong kernelTime, out ulong userTime);
+
     [DllImport(User32, SetLastError = true)]
     private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
